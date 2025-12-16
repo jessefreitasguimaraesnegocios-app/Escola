@@ -1,5 +1,5 @@
 -- ============================================================================
--- SCHEMA COMPLETO - SISTEMA DE GESTÃO ESCOLAR (EduGestão)
+-- SCHEMA COMPLETO - SISTEMA DE GESTÃO ESCOLAR (SmartEscola)
 -- ============================================================================
 -- Este schema pode ser executado diretamente no SQL Editor do Supabase
 -- Execute este script em um projeto Supabase limpo

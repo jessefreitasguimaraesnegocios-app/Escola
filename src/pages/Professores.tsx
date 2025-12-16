@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { DataTable } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Plus, MoreHorizontal, Eye, Edit, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Eye, Edit, Trash2, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +29,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
+import { teachersService, type TeacherWithSubjects } from "@/lib/supabase/teachers";
+import { subjectsService } from "@/lib/supabase/subjects";
 
 interface Teacher {
   id: string;
@@ -39,28 +42,6 @@ interface Teacher {
   status: "active" | "inactive";
   phone: string;
 }
-
-const initialTeachers: Teacher[] = [
-  { id: "1", name: "Maria Santos", email: "maria.santos@escola.com", subjects: ["Matemática", "Física"], qualification: "Mestrado em Matemática", status: "active", phone: "(11) 98888-1234" },
-  { id: "2", name: "Carlos Oliveira", email: "carlos.oliveira@escola.com", subjects: ["Física", "Química"], qualification: "Doutorado em Física", status: "active", phone: "(11) 98888-2345" },
-  { id: "3", name: "Ana Paula Ferreira", email: "ana.ferreira@escola.com", subjects: ["Português", "Literatura"], qualification: "Especialização em Letras", status: "active", phone: "(11) 98888-3456" },
-  { id: "4", name: "Roberto Lima", email: "roberto.lima@escola.com", subjects: ["História", "Geografia"], qualification: "Mestrado em História", status: "active", phone: "(11) 98888-4567" },
-  { id: "5", name: "Fernanda Costa", email: "fernanda.costa@escola.com", subjects: ["Biologia", "Ciências"], qualification: "Mestrado em Biologia", status: "active", phone: "(11) 98888-5678" },
-  { id: "6", name: "Pedro Almeida", email: "pedro.almeida@escola.com", subjects: ["Educação Física"], qualification: "Licenciatura em Ed. Física", status: "inactive", phone: "(11) 98888-6789" },
-];
-
-const availableSubjects = [
-  "Matemática",
-  "Português",
-  "Física",
-  "Química",
-  "História",
-  "Geografia",
-  "Biologia",
-  "Ciências",
-  "Literatura",
-  "Educação Física",
-];
 
 const statusConfig = {
   active: { label: "Ativo", className: "bg-success/10 text-success border-success/20" },
@@ -90,11 +71,15 @@ const columns = [
     header: "Disciplinas",
     render: (teacher: Teacher) => (
       <div className="flex flex-wrap gap-1">
-        {teacher.subjects.map((subject) => (
-          <Badge key={subject} variant="secondary" className="text-xs">
-            {subject}
-          </Badge>
-        ))}
+        {teacher.subjects.length > 0 ? (
+          teacher.subjects.map((subject) => (
+            <Badge key={subject} variant="secondary" className="text-xs">
+              {subject}
+            </Badge>
+          ))
+        ) : (
+          <span className="text-xs text-muted-foreground">Sem disciplinas</span>
+        )}
       </div>
     ),
   },
@@ -102,7 +87,7 @@ const columns = [
     key: "qualification",
     header: "Formação",
     render: (teacher: Teacher) => (
-      <span className="text-sm text-muted-foreground">{teacher.qualification}</span>
+      <span className="text-sm text-muted-foreground">{teacher.qualification || "—"}</span>
     ),
   },
   {
@@ -149,8 +134,11 @@ const columns = [
 ];
 
 const Professores = () => {
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [availableSubjects, setAvailableSubjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -159,6 +147,39 @@ const Professores = () => {
     subjects: [] as string[],
     status: "active" as "active" | "inactive",
   });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [teachersData, subjectsData] = await Promise.all([
+        teachersService.getAll(),
+        subjectsService.getAll(),
+      ]);
+
+      // Transformar dados do Supabase para o formato da interface
+      const formattedTeachers: Teacher[] = teachersData.map((teacher) => ({
+        id: teacher.id,
+        name: teacher.full_name,
+        email: teacher.email,
+        phone: teacher.phone || "",
+        qualification: teacher.qualification || "",
+        status: (teacher.status === "active" ? "active" : "inactive") as "active" | "inactive",
+        subjects: teacher.subjects?.map(s => s.subject.name) || [],
+      }));
+
+      setTeachers(formattedTeachers);
+      setAvailableSubjects(subjectsData.map(s => ({ id: s.id, name: s.name })));
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpenDialog = () => {
     setIsDialogOpen(true);
@@ -176,41 +197,59 @@ const Professores = () => {
     setIsDialogOpen(false);
   };
 
-  const handleSubjectToggle = (subject: string) => {
+  const handleSubjectToggle = (subjectId: string) => {
     setFormData((prev) => ({
       ...prev,
-      subjects: prev.subjects.includes(subject)
-        ? prev.subjects.filter((s) => s !== subject)
-        : [...prev.subjects, subject],
+      subjects: prev.subjects.includes(subjectId)
+        ? prev.subjects.filter((s) => s !== subjectId)
+        : [...prev.subjects, subjectId],
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validação básica
     if (!formData.name || !formData.email || !formData.phone || !formData.qualification || formData.subjects.length === 0) {
-      alert("Por favor, preencha todos os campos obrigatórios e selecione pelo menos uma disciplina.");
+      toast.error("Por favor, preencha todos os campos obrigatórios e selecione pelo menos uma disciplina.");
       return;
     }
 
-    // Criar novo professor
-    const newTeacher: Teacher = {
-      id: String(teachers.length + 1),
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      qualification: formData.qualification,
-      subjects: formData.subjects,
-      status: formData.status,
-    };
+    try {
+      setIsSubmitting(true);
 
-    // Adicionar à lista
-    setTeachers([...teachers, newTeacher]);
+      // Criar professor
+      await teachersService.create(
+        {
+          full_name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          qualification: formData.qualification,
+          status: formData.status,
+        },
+        formData.subjects
+      );
 
-    // Fechar diálogo e limpar formulário
-    handleCloseDialog();
+      toast.success("Professor cadastrado com sucesso!");
+      handleCloseDialog();
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao cadastrar professor: " + error.message);
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <MainLayout title="Professores" subtitle="Gerencie o corpo docente">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="Professores" subtitle="Gerencie o corpo docente">
@@ -258,6 +297,7 @@ const Professores = () => {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -269,6 +309,7 @@ const Professores = () => {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -279,6 +320,7 @@ const Professores = () => {
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -289,26 +331,34 @@ const Professores = () => {
                     value={formData.qualification}
                     onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label>Disciplinas *</Label>
                   <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
-                    {availableSubjects.map((subject) => (
-                      <div key={subject} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`subject-${subject}`}
-                          checked={formData.subjects.includes(subject)}
-                          onCheckedChange={() => handleSubjectToggle(subject)}
-                        />
-                        <Label
-                          htmlFor={`subject-${subject}`}
-                          className="text-sm font-normal cursor-pointer"
-                        >
-                          {subject}
-                        </Label>
-                      </div>
-                    ))}
+                    {availableSubjects.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Nenhuma disciplina cadastrada. Cadastre disciplinas primeiro.
+                      </p>
+                    ) : (
+                      availableSubjects.map((subject) => (
+                        <div key={subject.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`subject-${subject.id}`}
+                            checked={formData.subjects.includes(subject.id)}
+                            onCheckedChange={() => handleSubjectToggle(subject.id)}
+                            disabled={isSubmitting}
+                          />
+                          <Label
+                            htmlFor={`subject-${subject.id}`}
+                            className="text-sm font-normal cursor-pointer"
+                          >
+                            {subject.name}
+                          </Label>
+                        </div>
+                      ))
+                    )}
                   </div>
                   {formData.subjects.length > 0 && (
                     <p className="text-xs text-muted-foreground">
@@ -323,6 +373,7 @@ const Professores = () => {
                     onValueChange={(value: "active" | "inactive") =>
                       setFormData({ ...formData, status: value })
                     }
+                    disabled={isSubmitting}
                   >
                     <SelectTrigger id="status">
                       <SelectValue />
@@ -335,10 +386,24 @@ const Professores = () => {
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseDialog}
+                  disabled={isSubmitting}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">Cadastrar</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cadastrando...
+                    </>
+                  ) : (
+                    "Cadastrar"
+                  )}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

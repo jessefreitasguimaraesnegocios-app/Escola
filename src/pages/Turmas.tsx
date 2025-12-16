@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { DataTable } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, MoreHorizontal, Eye, Edit, Trash2, Users } from "lucide-react";
+import { Plus, MoreHorizontal, Eye, Edit, Trash2, Users, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
+import { classesService, type ClassWithTeacher } from "@/lib/supabase/classes";
+import { teachersService } from "@/lib/supabase/teachers";
 
 interface Class {
   id: string;
@@ -40,33 +43,16 @@ interface Class {
   room: string;
 }
 
-const initialClasses: Class[] = [
-  { id: "1", name: "7º Ano A", level: "Fundamental II", shift: "Manhã", capacity: 35, enrolled: 32, teacher: "Maria Santos", room: "Sala 101" },
-  { id: "2", name: "7º Ano B", level: "Fundamental II", shift: "Manhã", capacity: 35, enrolled: 30, teacher: "Carlos Oliveira", room: "Sala 102" },
-  { id: "3", name: "8º Ano A", level: "Fundamental II", shift: "Manhã", capacity: 35, enrolled: 35, teacher: "Ana Paula Ferreira", room: "Sala 103" },
-  { id: "4", name: "8º Ano B", level: "Fundamental II", shift: "Tarde", capacity: 35, enrolled: 28, teacher: "Roberto Lima", room: "Sala 104" },
-  { id: "5", name: "9º Ano A", level: "Fundamental II", shift: "Manhã", capacity: 35, enrolled: 33, teacher: "Fernanda Costa", room: "Sala 105" },
-  { id: "6", name: "9º Ano B", level: "Fundamental II", shift: "Tarde", capacity: 35, enrolled: 31, teacher: "Maria Santos", room: "Sala 106" },
-  { id: "7", name: "1º Ano EM", level: "Ensino Médio", shift: "Manhã", capacity: 40, enrolled: 38, teacher: "Carlos Oliveira", room: "Sala 201" },
-  { id: "8", name: "2º Ano EM", level: "Ensino Médio", shift: "Manhã", capacity: 40, enrolled: 36, teacher: "Ana Paula Ferreira", room: "Sala 202" },
-];
-
-const availableTeachers = [
-  "Maria Santos",
-  "Carlos Oliveira",
-  "Ana Paula Ferreira",
-  "Roberto Lima",
-  "Fernanda Costa",
-  "Pedro Almeida",
-];
-
 const availableLevels = ["Fundamental II", "Ensino Médio"];
 const availableShifts = ["Manhã", "Tarde", "Noite"];
 
-const shiftConfig = {
+const shiftConfig: Record<string, string> = {
   "Manhã": "bg-warning/10 text-warning border-warning/20",
   "Tarde": "bg-info/10 text-info border-info/20",
   "Noite": "bg-primary/10 text-primary border-primary/20",
+  "morning": "bg-warning/10 text-warning border-warning/20",
+  "afternoon": "bg-info/10 text-info border-info/20",
+  "night": "bg-primary/10 text-primary border-primary/20",
 };
 
 const columns = [
@@ -76,18 +62,24 @@ const columns = [
     render: (cls: Class) => (
       <div>
         <p className="font-medium text-foreground">{cls.name}</p>
-        <p className="text-xs text-muted-foreground">{cls.level}</p>
+        <p className="text-xs text-muted-foreground">{cls.level || "—"}</p>
       </div>
     ),
   },
   {
     key: "shift",
     header: "Turno",
-    render: (cls: Class) => (
-      <Badge variant="outline" className={shiftConfig[cls.shift as keyof typeof shiftConfig]}>
-        {cls.shift}
-      </Badge>
-    ),
+    render: (cls: Class) => {
+      const shiftDisplay = cls.shift === "morning" ? "Manhã" : 
+                          cls.shift === "afternoon" ? "Tarde" :
+                          cls.shift === "night" ? "Noite" : cls.shift;
+      const className = shiftConfig[shiftDisplay] || shiftConfig[cls.shift] || "bg-muted/10 text-muted border-muted/20";
+      return (
+        <Badge variant="outline" className={className}>
+          {shiftDisplay}
+        </Badge>
+      );
+    },
   },
   {
     key: "teacher",
@@ -147,16 +139,55 @@ const columns = [
 ];
 
 const Turmas = () => {
-  const [classes, setClasses] = useState<Class[]>(initialClasses);
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     level: "",
     shift: "",
     capacity: "",
-    teacher: "",
+    teacherId: "",
     room: "",
   });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [classesData, teachersData] = await Promise.all([
+        classesService.getAll(),
+        teachersService.getAll(),
+      ]);
+
+      // Transformar dados do Supabase para o formato da interface
+      const formattedClasses: Class[] = classesData.map((cls) => ({
+        id: cls.id,
+        name: cls.name,
+        level: cls.level || "",
+        shift: cls.shift === "morning" ? "Manhã" : 
+               cls.shift === "afternoon" ? "Tarde" :
+               cls.shift === "night" ? "Noite" : cls.shift,
+        capacity: cls.max_capacity || 40,
+        enrolled: cls.enrolled_count || 0,
+        teacher: cls.teacher?.full_name || "Sem professor",
+        room: cls.room || "—",
+      }));
+
+      setClasses(formattedClasses);
+      setTeachers(teachersData.map(t => ({ id: t.id, full_name: t.full_name })));
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpenDialog = () => {
     setIsDialogOpen(true);
@@ -165,7 +196,7 @@ const Turmas = () => {
       level: "",
       shift: "",
       capacity: "",
-      teacher: "",
+      teacherId: "",
       room: "",
     });
   };
@@ -174,33 +205,58 @@ const Turmas = () => {
     setIsDialogOpen(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const mapShiftToDB = (shift: string): string => {
+    if (shift === "Manhã") return "morning";
+    if (shift === "Tarde") return "afternoon";
+    if (shift === "Noite") return "night";
+    return shift;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validação básica
-    if (!formData.name || !formData.level || !formData.shift || !formData.capacity || !formData.teacher || !formData.room) {
-      alert("Por favor, preencha todos os campos obrigatórios.");
+    if (!formData.name || !formData.level || !formData.shift || !formData.capacity || !formData.teacherId || !formData.room) {
+      toast.error("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
 
-    // Criar nova turma
-    const newClass: Class = {
-      id: String(classes.length + 1),
-      name: formData.name,
-      level: formData.level,
-      shift: formData.shift,
-      capacity: parseInt(formData.capacity),
-      enrolled: 0, // Nova turma começa sem alunos matriculados
-      teacher: formData.teacher,
-      room: formData.room,
-    };
+    try {
+      setIsSubmitting(true);
 
-    // Adicionar à lista
-    setClasses([...classes, newClass]);
+      // Extrair ano do nome da turma ou usar ano atual
+      const currentYear = new Date().getFullYear();
 
-    // Fechar diálogo e limpar formulário
-    handleCloseDialog();
+      await classesService.create({
+        name: formData.name,
+        year: currentYear,
+        level: formData.level,
+        shift: mapShiftToDB(formData.shift),
+        max_capacity: parseInt(formData.capacity),
+        teacher_id: formData.teacherId || null,
+        room: formData.room,
+      });
+
+      toast.success("Turma cadastrada com sucesso!");
+      handleCloseDialog();
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao cadastrar turma: " + error.message);
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <MainLayout title="Turmas" subtitle="Gerencie as turmas e seções">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="Turmas" subtitle="Gerencie as turmas e seções">
@@ -248,6 +304,7 @@ const Turmas = () => {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -256,6 +313,7 @@ const Turmas = () => {
                     <Select
                       value={formData.level}
                       onValueChange={(value) => setFormData({ ...formData, level: value })}
+                      disabled={isSubmitting}
                     >
                       <SelectTrigger id="level">
                         <SelectValue placeholder="Selecione o nível" />
@@ -274,6 +332,7 @@ const Turmas = () => {
                     <Select
                       value={formData.shift}
                       onValueChange={(value) => setFormData({ ...formData, shift: value })}
+                      disabled={isSubmitting}
                     >
                       <SelectTrigger id="shift">
                         <SelectValue placeholder="Selecione o turno" />
@@ -291,16 +350,17 @@ const Turmas = () => {
                 <div className="grid gap-2">
                   <Label htmlFor="teacher">Professor Responsável *</Label>
                   <Select
-                    value={formData.teacher}
-                    onValueChange={(value) => setFormData({ ...formData, teacher: value })}
+                    value={formData.teacherId}
+                    onValueChange={(value) => setFormData({ ...formData, teacherId: value })}
+                    disabled={isSubmitting}
                   >
                     <SelectTrigger id="teacher">
                       <SelectValue placeholder="Selecione o professor" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableTeachers.map((teacher) => (
-                        <SelectItem key={teacher} value={teacher}>
-                          {teacher}
+                      {teachers.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.id}>
+                          {teacher.full_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -317,6 +377,7 @@ const Turmas = () => {
                       value={formData.capacity}
                       onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
                   <div className="grid gap-2">
@@ -327,15 +388,30 @@ const Turmas = () => {
                       value={formData.room}
                       onChange={(e) => setFormData({ ...formData, room: e.target.value })}
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseDialog}
+                  disabled={isSubmitting}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">Cadastrar</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cadastrando...
+                    </>
+                  ) : (
+                    "Cadastrar"
+                  )}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { DataTable } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Plus, MoreHorizontal, Eye, Edit, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Eye, Edit, Trash2, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,34 +28,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
+import { studentsService, type StudentWithClass } from "@/lib/supabase/students";
+import { classesService } from "@/lib/supabase/classes";
+import type { Database } from "@/integrations/supabase/types";
+
+type StudentStatus = Database['public']['Enums']['student_status'];
 
 interface Student {
   id: string;
   name: string;
   email: string;
   class: string;
-  status: "active" | "inactive" | "graduated";
+  status: StudentStatus;
   enrollment: string;
   phone: string;
 }
-
-const initialStudents: Student[] = [
-  { id: "1", name: "Ana Silva Santos", email: "ana.silva@email.com", class: "9º Ano A", status: "active", enrollment: "2024001", phone: "(11) 99999-1234" },
-  { id: "2", name: "Bruno Costa Oliveira", email: "bruno.costa@email.com", class: "9º Ano A", status: "active", enrollment: "2024002", phone: "(11) 99999-2345" },
-  { id: "3", name: "Carla Mendes Lima", email: "carla.mendes@email.com", class: "8º Ano B", status: "active", enrollment: "2024003", phone: "(11) 99999-3456" },
-  { id: "4", name: "Daniel Ferreira Souza", email: "daniel.ferreira@email.com", class: "9º Ano B", status: "inactive", enrollment: "2024004", phone: "(11) 99999-4567" },
-  { id: "5", name: "Elena Rodrigues Alves", email: "elena.rodrigues@email.com", class: "7º Ano A", status: "active", enrollment: "2024005", phone: "(11) 99999-5678" },
-  { id: "6", name: "Felipe Martins Pereira", email: "felipe.martins@email.com", class: "8º Ano A", status: "active", enrollment: "2024006", phone: "(11) 99999-6789" },
-  { id: "7", name: "Gabriela Santos Costa", email: "gabriela.santos@email.com", class: "9º Ano A", status: "graduated", enrollment: "2023001", phone: "(11) 99999-7890" },
-  { id: "8", name: "Hugo Almeida Silva", email: "hugo.almeida@email.com", class: "7º Ano B", status: "active", enrollment: "2024007", phone: "(11) 99999-8901" },
-];
-
-const turmas = ["7º Ano A", "7º Ano B", "8º Ano A", "8º Ano B", "9º Ano A", "9º Ano B"];
 
 const statusConfig = {
   active: { label: "Ativo", className: "bg-success/10 text-success border-success/20" },
   inactive: { label: "Inativo", className: "bg-destructive/10 text-destructive border-destructive/20" },
   graduated: { label: "Formado", className: "bg-info/10 text-info border-info/20" },
+  transferred: { label: "Transferido", className: "bg-warning/10 text-warning border-warning/20" },
 };
 
 const columns = [
@@ -95,8 +89,8 @@ const columns = [
     key: "status",
     header: "Status",
     render: (student: Student) => (
-      <Badge variant="outline" className={statusConfig[student.status].className}>
-        {statusConfig[student.status].label}
+      <Badge variant="outline" className={statusConfig[student.status || 'active'].className}>
+        {statusConfig[student.status || 'active'].label}
       </Badge>
     ),
   },
@@ -131,22 +125,58 @@ const columns = [
 ];
 
 const Alunos = () => {
-  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    class: "",
-    status: "active" as "active" | "inactive" | "graduated",
+    classId: "",
+    status: "active" as StudentStatus,
     phone: "",
   });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [studentsData, classesData] = await Promise.all([
+        studentsService.getAll(),
+        classesService.getAll(),
+      ]);
+
+      // Transformar dados do Supabase para o formato da interface
+      const formattedStudents: Student[] = studentsData.map((student) => ({
+        id: student.id,
+        name: student.full_name,
+        email: student.email || "",
+        class: student.classes?.name || "Sem turma",
+        status: student.status || "active",
+        enrollment: student.registration_number,
+        phone: student.phone || "",
+      }));
+
+      setStudents(formattedStudents);
+      setClasses(classesData.map(cls => ({ id: cls.id, name: cls.name })));
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpenDialog = () => {
     setIsDialogOpen(true);
     setFormData({
       name: "",
       email: "",
-      class: "",
+      classId: "",
       status: "active",
       phone: "",
     });
@@ -156,37 +186,59 @@ const Alunos = () => {
     setIsDialogOpen(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validação básica
-    if (!formData.name || !formData.email || !formData.class || !formData.phone) {
-      alert("Por favor, preencha todos os campos obrigatórios.");
+    if (!formData.name || !formData.email || !formData.classId || !formData.phone) {
+      toast.error("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
 
-    // Gerar nova matrícula (maior matrícula + 1)
-    const enrollments = students.map(s => parseInt(s.enrollment));
-    const maxEnrollment = enrollments.length > 0 ? Math.max(...enrollments) : 2024000;
-    const newEnrollment = String(maxEnrollment + 1);
+    try {
+      setIsSubmitting(true);
 
-    // Criar novo aluno
-    const newStudent: Student = {
-      id: String(students.length + 1),
-      name: formData.name,
-      email: formData.email,
-      class: formData.class,
-      status: formData.status,
-      enrollment: newEnrollment,
-      phone: formData.phone,
-    };
+      // Gerar número de matrícula (ano atual + sequencial)
+      const year = new Date().getFullYear();
+      const existingStudents = await studentsService.getAll();
+      const yearStudents = existingStudents.filter(s => 
+        s.registration_number.startsWith(year.toString())
+      );
+      const nextNumber = yearStudents.length > 0
+        ? Math.max(...yearStudents.map(s => parseInt(s.registration_number.slice(-4)))) + 1
+        : 1;
+      const registrationNumber = `${year}${String(nextNumber).padStart(4, '0')}`;
 
-    // Adicionar à lista
-    setStudents([...students, newStudent]);
-    
-    // Fechar diálogo e limpar formulário
-    handleCloseDialog();
+      // Criar aluno
+      await studentsService.create({
+        full_name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        registration_number: registrationNumber,
+        status: formData.status,
+        class_id: formData.classId || null,
+      });
+
+      toast.success("Aluno cadastrado com sucesso!");
+      handleCloseDialog();
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao cadastrar aluno: " + error.message);
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <MainLayout title="Alunos" subtitle="Gerencie os alunos matriculados">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="Alunos" subtitle="Gerencie os alunos matriculados">
@@ -234,6 +286,7 @@ const Alunos = () => {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -245,6 +298,7 @@ const Alunos = () => {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
@@ -255,21 +309,23 @@ const Alunos = () => {
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="class">Turma *</Label>
                   <Select
-                    value={formData.class}
-                    onValueChange={(value) => setFormData({ ...formData, class: value })}
+                    value={formData.classId}
+                    onValueChange={(value) => setFormData({ ...formData, classId: value })}
+                    disabled={isSubmitting}
                   >
                     <SelectTrigger id="class">
                       <SelectValue placeholder="Selecione a turma" />
                     </SelectTrigger>
                     <SelectContent>
-                      {turmas.map((turma) => (
-                        <SelectItem key={turma} value={turma}>
-                          {turma}
+                      {classes.map((turma) => (
+                        <SelectItem key={turma.id} value={turma.id}>
+                          {turma.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -279,9 +335,10 @@ const Alunos = () => {
                   <Label htmlFor="status">Status *</Label>
                   <Select
                     value={formData.status}
-                    onValueChange={(value: "active" | "inactive" | "graduated") =>
+                    onValueChange={(value: StudentStatus) =>
                       setFormData({ ...formData, status: value })
                     }
+                    disabled={isSubmitting}
                   >
                     <SelectTrigger id="status">
                       <SelectValue />
@@ -290,15 +347,30 @@ const Alunos = () => {
                       <SelectItem value="active">Ativo</SelectItem>
                       <SelectItem value="inactive">Inativo</SelectItem>
                       <SelectItem value="graduated">Formado</SelectItem>
+                      <SelectItem value="transferred">Transferido</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseDialog}
+                  disabled={isSubmitting}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">Cadastrar</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cadastrando...
+                    </>
+                  ) : (
+                    "Cadastrar"
+                  )}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

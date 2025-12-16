@@ -134,9 +134,9 @@ export default function Auth() {
             <div className="p-3 rounded-xl bg-primary/10">
               <GraduationCap className="h-8 w-8 text-primary" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground">EduGestão</h1>
+            <h1 className="text-3xl font-bold text-foreground">SmartEscola</h1>
           </div>
-          <p className="text-muted-foreground">Sistema de Gestão Escolar</p>
+          <p className="text-muted-foreground">CEO-Jessé Freitas Guimarães</p>
         </div>
 
         <Card className="border-border/50 shadow-xl">

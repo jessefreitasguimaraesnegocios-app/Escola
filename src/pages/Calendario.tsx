@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
-import { useState } from "react";
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -23,36 +23,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { calendarService } from "@/lib/supabase/calendar";
+import type { Database } from "@/integrations/supabase/types";
+
+type EventType = Database['public']['Enums']['event_type'];
 
 interface Event {
   id: string;
   title: string;
   date: string;
-  type: "holiday" | "exam" | "meeting" | "deadline" | "event";
+  type: EventType;
   description?: string;
 }
 
-const initialEvents: Event[] = [
-  { id: "1", title: "Início das Aulas", date: "2024-01-29", type: "event", description: "Primeiro dia letivo de 2024" },
-  { id: "2", title: "Carnaval", date: "2024-02-12", type: "holiday" },
-  { id: "3", title: "Carnaval", date: "2024-02-13", type: "holiday" },
-  { id: "4", title: "Prova Bimestral - 1º Bim", date: "2024-03-25", type: "exam" },
-  { id: "5", title: "Reunião de Pais", date: "2024-04-05", type: "meeting" },
-  { id: "6", title: "Tiradentes", date: "2024-04-21", type: "holiday" },
-  { id: "7", title: "Entrega de Notas - 1º Bim", date: "2024-04-10", type: "deadline" },
-  { id: "8", title: "Dia do Trabalho", date: "2024-05-01", type: "holiday" },
-  { id: "9", title: "Prova Bimestral - 2º Bim", date: "2024-06-10", type: "exam" },
-  { id: "10", title: "Festa Junina", date: "2024-06-15", type: "event" },
-  { id: "11", title: "Recesso Escolar", date: "2024-07-01", type: "holiday" },
-  { id: "12", title: "Conselho de Classe", date: "2024-01-15", type: "meeting" },
-];
-
-const typeConfig = {
+const typeConfig: Record<string, { label: string; color: string; dot: string }> = {
   holiday: { label: "Feriado", color: "bg-destructive/10 text-destructive border-destructive/20", dot: "bg-destructive" },
   exam: { label: "Prova", color: "bg-warning/10 text-warning border-warning/20", dot: "bg-warning" },
   meeting: { label: "Reunião", color: "bg-info/10 text-info border-info/20", dot: "bg-info" },
   deadline: { label: "Prazo", color: "bg-primary/10 text-primary border-primary/20", dot: "bg-primary" },
   event: { label: "Evento", color: "bg-success/10 text-success border-success/20", dot: "bg-success" },
+  other: { label: "Outro", color: "bg-muted/10 text-muted border-muted/20", dot: "bg-muted" },
 };
 
 const months = [
@@ -71,13 +62,15 @@ const getFirstDayOfMonth = (year: number, month: number) => {
 };
 
 const Calendario = () => {
-  const [currentDate, setCurrentDate] = useState(new Date(2024, 0, 1));
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
     date: "",
-    type: "event" as "holiday" | "exam" | "meeting" | "deadline" | "event",
+    type: "event" as EventType,
     description: "",
   });
 
@@ -85,6 +78,33 @@ const Calendario = () => {
   const month = currentDate.getMonth();
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
+
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  const loadEvents = async () => {
+    try {
+      setLoading(true);
+      const eventsData = await calendarService.getAll();
+      
+      // Transformar dados do Supabase para o formato da interface
+      const formattedEvents: Event[] = eventsData.map((event) => ({
+        id: event.id,
+        title: event.title,
+        date: event.start_date,
+        type: (event.event_type || "other") as EventType,
+        description: event.description || undefined,
+      }));
+
+      setEvents(formattedEvents);
+    } catch (error: any) {
+      toast.error("Erro ao carregar eventos: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const prevMonth = () => {
     setCurrentDate(new Date(year, month - 1, 1));
@@ -121,30 +141,47 @@ const Calendario = () => {
     setIsDialogOpen(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validação básica
     if (!formData.title || !formData.date) {
-      alert("Por favor, preencha o título e a data do evento.");
+      toast.error("Por favor, preencha o título e a data do evento.");
       return;
     }
 
-    // Criar novo evento
-    const newEvent: Event = {
-      id: String(events.length + 1),
-      title: formData.title,
-      date: formData.date,
-      type: formData.type,
-      description: formData.description || undefined,
-    };
+    try {
+      setIsSubmitting(true);
 
-    // Adicionar à lista
-    setEvents([...events, newEvent]);
+      // Criar evento
+      await calendarService.create({
+        title: formData.title,
+        start_date: formData.date,
+        event_type: formData.type,
+        description: formData.description || null,
+        all_day: true,
+      });
 
-    // Fechar diálogo e limpar formulário
-    handleCloseDialog();
+      toast.success("Evento cadastrado com sucesso!");
+      handleCloseDialog();
+      loadEvents();
+    } catch (error: any) {
+      toast.error("Erro ao cadastrar evento: " + error.message);
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <MainLayout title="Calendário Acadêmico" subtitle="Visualize e gerencie eventos do ano letivo">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="Calendário Acadêmico" subtitle="Visualize e gerencie eventos do ano letivo">
@@ -152,7 +189,7 @@ const Calendario = () => {
         {/* Header Actions */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">Ano Letivo 2024</Badge>
+            <Badge variant="secondary">Ano Letivo {year}</Badge>
           </div>
           <Button className="gap-2" onClick={handleOpenDialog}>
             <Plus className="w-4 h-4" />
@@ -230,7 +267,7 @@ const Calendario = () => {
                             key={event.id}
                             className={cn(
                               "text-xs px-1.5 py-0.5 rounded truncate",
-                              typeConfig[event.type].color
+                              typeConfig[event.type]?.color || typeConfig.other.color
                             )}
                           >
                             {event.title}
@@ -257,29 +294,33 @@ const Calendario = () => {
                 <CardTitle className="text-lg">Próximos Eventos</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {upcomingEvents.map((event, index) => (
-                  <div
-                    key={event.id}
-                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors animate-slide-in"
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <div className={cn("w-2 h-2 rounded-full mt-2", typeConfig[event.type].dot)} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-foreground truncate">
-                        {event.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(event.date).toLocaleDateString("pt-BR", {
-                          day: "2-digit",
-                          month: "short",
-                        })}
-                      </p>
+                {upcomingEvents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum evento próximo</p>
+                ) : (
+                  upcomingEvents.map((event, index) => (
+                    <div
+                      key={event.id}
+                      className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors animate-slide-in"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <div className={cn("w-2 h-2 rounded-full mt-2", typeConfig[event.type]?.dot || typeConfig.other.dot)} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-foreground truncate">
+                          {event.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(event.date).toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "short",
+                          })}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className={cn("text-xs", typeConfig[event.type]?.color || typeConfig.other.color)}>
+                        {typeConfig[event.type]?.label || typeConfig.other.label}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className={cn("text-xs", typeConfig[event.type].color)}>
-                      {typeConfig[event.type].label}
-                    </Badge>
-                  </div>
-                ))}
+                  ))
+                )}
               </CardContent>
             </Card>
 
@@ -319,6 +360,7 @@ const Calendario = () => {
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -330,15 +372,17 @@ const Calendario = () => {
                       value={formData.date}
                       onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="type">Tipo *</Label>
                     <Select
                       value={formData.type}
-                      onValueChange={(value: "holiday" | "exam" | "meeting" | "deadline" | "event") =>
+                      onValueChange={(value: EventType) =>
                         setFormData({ ...formData, type: value })
                       }
+                      disabled={isSubmitting}
                     >
                       <SelectTrigger id="type">
                         <SelectValue />
@@ -349,6 +393,7 @@ const Calendario = () => {
                         <SelectItem value="exam">Prova</SelectItem>
                         <SelectItem value="meeting">Reunião</SelectItem>
                         <SelectItem value="deadline">Prazo</SelectItem>
+                        <SelectItem value="other">Outro</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -361,14 +406,29 @@ const Calendario = () => {
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
+                    disabled={isSubmitting}
                   />
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseDialog}
+                  disabled={isSubmitting}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">Cadastrar</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cadastrando...
+                    </>
+                  ) : (
+                    "Cadastrar"
+                  )}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

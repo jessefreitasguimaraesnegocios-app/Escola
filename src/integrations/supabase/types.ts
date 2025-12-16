@@ -54,31 +54,48 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          level: string | null
           max_capacity: number | null
           name: string
+          room: string | null
           shift: string
+          teacher_id: string | null
           updated_at: string | null
           year: number
         }
         Insert: {
           created_at?: string | null
           id?: string
+          level?: string | null
           max_capacity?: number | null
           name: string
+          room?: string | null
           shift?: string
+          teacher_id?: string | null
           updated_at?: string | null
           year: number
         }
         Update: {
           created_at?: string | null
           id?: string
+          level?: string | null
           max_capacity?: number | null
           name?: string
+          room?: string | null
           shift?: string
+          teacher_id?: string | null
           updated_at?: string | null
           year?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "classes_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       enrollments: {
         Row: {
@@ -366,6 +383,7 @@ export type Database = {
       subjects: {
         Row: {
           code: string
+          color: string | null
           created_at: string | null
           description: string | null
           id: string
@@ -375,6 +393,7 @@ export type Database = {
         }
         Insert: {
           code: string
+          color?: string | null
           created_at?: string | null
           description?: string | null
           id?: string
@@ -384,6 +403,7 @@ export type Database = {
         }
         Update: {
           code?: string
+          color?: string | null
           created_at?: string | null
           description?: string | null
           id?: string
@@ -641,7 +661,7 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "teacher", "student", "parent"],
       enrollment_status: ["enrolled", "pending", "cancelled", "completed"],
-      event_type: ["holiday", "exam", "meeting", "deadline", "other"],
+      event_type: ["holiday", "exam", "meeting", "deadline", "other", "event"],
       grading_period_type: ["bimonthly", "semestral"],
       student_status: ["active", "inactive", "graduated", "transferred"],
     },
