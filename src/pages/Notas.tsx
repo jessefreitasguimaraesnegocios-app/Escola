@@ -5,31 +5,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { Save, Download, FileSpreadsheet } from "lucide-react";
-import { useState } from "react";
+import { Save, Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { gradesService, type GradeWithDetails } from "@/lib/supabase/grades";
+import { classesService } from "@/lib/supabase/classes";
+import { subjectsService } from "@/lib/supabase/subjects";
+import { studentsService } from "@/lib/supabase/students";
+import { supabase } from "@/integrations/supabase/client";
 
 interface GradeEntry {
-  id: string;
+  studentId: string;
   studentName: string;
   enrollment: string;
-  bim1: number | null;
-  bim2: number | null;
-  bim3: number | null;
-  bim4: number | null;
+  bim1: { periodId: string; score: number | null; gradeId?: string };
+  bim2: { periodId: string; score: number | null; gradeId?: string };
+  bim3: { periodId: string; score: number | null; gradeId?: string };
+  bim4: { periodId: string; score: number | null; gradeId?: string };
   average: number | null;
   status: "approved" | "failed" | "pending";
 }
-
-const initialGrades: GradeEntry[] = [
-  { id: "1", studentName: "Ana Silva Santos", enrollment: "2024001", bim1: 8.5, bim2: 7.8, bim3: 9.0, bim4: 8.2, average: 8.4, status: "approved" },
-  { id: "2", studentName: "Bruno Costa Oliveira", enrollment: "2024002", bim1: 6.0, bim2: 5.5, bim3: 6.8, bim4: 7.0, average: 6.3, status: "approved" },
-  { id: "3", studentName: "Carla Mendes Lima", enrollment: "2024003", bim1: 9.2, bim2: 9.5, bim3: 9.0, bim4: 9.8, average: 9.4, status: "approved" },
-  { id: "4", studentName: "Daniel Ferreira Souza", enrollment: "2024004", bim1: 4.5, bim2: 5.0, bim3: 4.8, bim4: null, average: null, status: "pending" },
-  { id: "5", studentName: "Elena Rodrigues Alves", enrollment: "2024005", bim1: 7.5, bim2: 8.0, bim3: 7.2, bim4: 7.8, average: 7.6, status: "approved" },
-  { id: "6", studentName: "Felipe Martins Pereira", enrollment: "2024006", bim1: 3.5, bim2: 4.0, bim3: 4.5, bim4: 4.2, average: 4.1, status: "failed" },
-  { id: "7", studentName: "Gabriela Santos Costa", enrollment: "2024007", bim1: 8.0, bim2: 8.5, bim3: null, bim4: null, average: null, status: "pending" },
-  { id: "8", studentName: "Hugo Almeida Silva", enrollment: "2024008", bim1: 7.0, bim2: 6.5, bim3: 7.5, bim4: 7.2, average: 7.1, status: "approved" },
-];
 
 // Função para calcular média e status
 const calculateAverageAndStatus = (bim1: number | null, bim2: number | null, bim3: number | null, bim4: number | null): { average: number | null; status: "approved" | "failed" | "pending" } => {
@@ -70,158 +65,142 @@ const getGradeColor = (grade: number | null) => {
 };
 
 const Notas = () => {
-  const [selectedClass, setSelectedClass] = useState("9a");
-  const [selectedSubject, setSelectedSubject] = useState("mat");
-  const [grades, setGrades] = useState<GradeEntry[]>(initialGrades);
+  const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; name: string; code: string }>>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>("");
+  const [grades, setGrades] = useState<GradeEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [gradingPeriods, setGradingPeriods] = useState<Array<{ id: string; period_number: number; name: string }>>([]);
 
-  const handleImport = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv";
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
+  useEffect(() => {
+    loadInitialData();
+  }, []);
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        const lines = text.split("\n").filter((line) => line.trim());
-        
-        if (lines.length < 2) {
-          alert("Arquivo CSV inválido. Deve conter pelo menos o cabeçalho e uma linha de dados.");
-          return;
-        }
+  useEffect(() => {
+    if (selectedClassId && selectedSubjectId) {
+      loadGrades();
+    }
+  }, [selectedClassId, selectedSubjectId]);
 
-        // Processar cabeçalho
-        const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
-        
-        // Verificar se o cabeçalho está correto
-        const expectedHeaders = ["Matrícula", "Aluno", "1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre"];
-        const hasValidHeaders = expectedHeaders.every((h) => 
-          headers.some((header) => header.toLowerCase().includes(h.toLowerCase().replace("º", "").replace(" ", "")))
-        );
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      const [classesData, subjectsData, periodsData] = await Promise.all([
+        classesService.getAll(),
+        subjectsService.getAll(),
+        supabase
+          .from('grading_periods')
+          .select('id, period_number, name')
+          .eq('academic_year', 2024)
+          .eq('period_type', 'bimonthly')
+          .order('period_number', { ascending: true })
+      ]);
 
-        if (!hasValidHeaders) {
-          alert("Formato de arquivo inválido. O CSV deve conter as colunas: Matrícula, Aluno, 1º Bimestre, 2º Bimestre, 3º Bimestre, 4º Bimestre");
-          return;
-        }
+      setClasses(classesData.map(c => ({ id: c.id, name: c.name })));
+      setSubjects(subjectsData.map(s => ({ id: s.id, name: s.name, code: s.code })));
+      
+      if (periodsData.data) {
+        setGradingPeriods(periodsData.data);
+      }
 
-        // Processar dados
-        const importedGrades: GradeEntry[] = [];
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(",").map((v) => v.trim().replace(/"/g, ""));
+      // Selecionar primeira turma e disciplina por padrão
+      if (classesData.length > 0 && subjectsData.length > 0) {
+        setSelectedClassId(classesData[0].id);
+        setSelectedSubjectId(subjectsData[0].id);
+      }
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadGrades = async () => {
+    if (!selectedClassId || !selectedSubjectId) return;
+
+    try {
+      setLoading(true);
+      
+      // Buscar alunos da turma
+      const students = await studentsService.getAll();
+      const classStudents = students.filter(s => s.class_id === selectedClassId);
+
+      // Buscar períodos de avaliação primeiro
+      const { data: periodsData } = await supabase
+        .from('grading_periods')
+        .select('id, period_number, name')
+        .eq('academic_year', 2024)
+        .eq('period_type', 'bimonthly')
+        .order('period_number', { ascending: true });
+
+      if (!periodsData || periodsData.length === 0) {
+        toast.error("Nenhum período de avaliação encontrado para 2024. Configure os períodos primeiro.");
+        setLoading(false);
+        return;
+      }
+
+      // Buscar notas existentes
+      const gradesData = await gradesService.getByClassAndSubject(selectedClassId, selectedSubjectId, 2024);
+
+      // Organizar notas por aluno e período
+      const gradesMap = new Map<string, Map<number, GradeWithDetails>>();
+      gradesData.forEach(grade => {
+        if (grade.student && grade.grading_period) {
+          const studentId = grade.student.id;
+          const periodNumber = grade.grading_period.period_number;
           
-          if (values.length < 2) continue;
-
-          // Encontrar índices das colunas
-          const enrollmentIndex = headers.findIndex((h) => h.toLowerCase().includes("matrícula") || h.toLowerCase().includes("matricula"));
-          const nameIndex = headers.findIndex((h) => h.toLowerCase().includes("aluno") || h.toLowerCase().includes("nome"));
-          const bim1Index = headers.findIndex((h) => h.toLowerCase().includes("1") && h.toLowerCase().includes("bim"));
-          const bim2Index = headers.findIndex((h) => h.toLowerCase().includes("2") && h.toLowerCase().includes("bim"));
-          const bim3Index = headers.findIndex((h) => h.toLowerCase().includes("3") && h.toLowerCase().includes("bim"));
-          const bim4Index = headers.findIndex((h) => h.toLowerCase().includes("4") && h.toLowerCase().includes("bim"));
-
-          const enrollment = values[enrollmentIndex] || "";
-          const studentName = values[nameIndex] || "";
-          
-          if (!enrollment || !studentName) continue;
-
-          const bim1 = values[bim1Index] ? parseFloat(values[bim1Index]) : null;
-          const bim2 = values[bim2Index] ? parseFloat(values[bim2Index]) : null;
-          const bim3 = values[bim3Index] ? parseFloat(values[bim3Index]) : null;
-          const bim4 = values[bim4Index] ? parseFloat(values[bim4Index]) : null;
-
-          const { average, status } = calculateAverageAndStatus(bim1, bim2, bim3, bim4);
-
-          // Verificar se já existe um aluno com essa matrícula
-          const existingGradeIndex = grades.findIndex((g) => g.enrollment === enrollment);
-          
-          if (existingGradeIndex >= 0) {
-            // Atualizar nota existente
-            const updatedGrades = [...grades];
-            updatedGrades[existingGradeIndex] = {
-              ...updatedGrades[existingGradeIndex],
-              bim1: isNaN(bim1 || 0) ? updatedGrades[existingGradeIndex].bim1 : bim1,
-              bim2: isNaN(bim2 || 0) ? updatedGrades[existingGradeIndex].bim2 : bim2,
-              bim3: isNaN(bim3 || 0) ? updatedGrades[existingGradeIndex].bim3 : bim3,
-              bim4: isNaN(bim4 || 0) ? updatedGrades[existingGradeIndex].bim4 : bim4,
-              average,
-              status,
-            };
-            setGrades(updatedGrades);
-          } else {
-            // Adicionar novo aluno
-            importedGrades.push({
-              id: String(grades.length + importedGrades.length + 1),
-              studentName,
-              enrollment,
-              bim1: isNaN(bim1 || 0) ? null : bim1,
-              bim2: isNaN(bim2 || 0) ? null : bim2,
-              bim3: isNaN(bim3 || 0) ? null : bim3,
-              bim4: isNaN(bim4 || 0) ? null : bim4,
-              average,
-              status,
-            });
+          if (!gradesMap.has(studentId)) {
+            gradesMap.set(studentId, new Map());
           }
+          gradesMap.get(studentId)!.set(periodNumber, grade);
         }
+      });
 
-        if (importedGrades.length > 0) {
-          setGrades([...grades, ...importedGrades]);
-        }
+      // Criar estrutura de notas
+      const formattedGrades: GradeEntry[] = classStudents.map(student => {
+        const period1 = gradesMap.get(student.id)?.get(1);
+        const period2 = gradesMap.get(student.id)?.get(2);
+        const period3 = gradesMap.get(student.id)?.get(3);
+        const period4 = gradesMap.get(student.id)?.get(4);
 
-        alert(`Importação concluída! ${importedGrades.length > 0 ? `${importedGrades.length} novo(s) aluno(s) adicionado(s).` : "Notas atualizadas."}`);
-      };
-      reader.readAsText(file);
-    };
-    input.click();
+        const period1Id = periodsData.find(p => p.period_number === 1)?.id || '';
+        const period2Id = periodsData.find(p => p.period_number === 2)?.id || '';
+        const period3Id = periodsData.find(p => p.period_number === 3)?.id || '';
+        const period4Id = periodsData.find(p => p.period_number === 4)?.id || '';
+
+        const bim1Score = period1?.score ? Number(period1.score) : null;
+        const bim2Score = period2?.score ? Number(period2.score) : null;
+        const bim3Score = period3?.score ? Number(period3.score) : null;
+        const bim4Score = period4?.score ? Number(period4.score) : null;
+
+        const { average, status } = calculateAverageAndStatus(bim1Score, bim2Score, bim3Score, bim4Score);
+
+        return {
+          studentId: student.id,
+          studentName: student.full_name,
+          enrollment: student.registration_number,
+          bim1: { periodId: period1Id, score: bim1Score, gradeId: period1?.id },
+          bim2: { periodId: period2Id, score: bim2Score, gradeId: period2?.id },
+          bim3: { periodId: period3Id, score: bim3Score, gradeId: period3?.id },
+          bim4: { periodId: period4Id, score: bim4Score, gradeId: period4?.id },
+          average,
+          status,
+        };
+      });
+
+      setGrades(formattedGrades);
+    } catch (error: any) {
+      toast.error("Erro ao carregar notas: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleExport = () => {
-    // Criar dados CSV
-    const csvRows: string[] = [];
-    
-    // Cabeçalho
-    const headers = ["Matrícula", "Aluno", "1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre", "Média", "Situação"];
-    csvRows.push(headers.join(","));
-    
-    // Dados
-    grades.forEach((grade) => {
-      const row = [
-        grade.enrollment,
-        `"${grade.studentName}"`,
-        grade.bim1?.toFixed(1) ?? "",
-        grade.bim2?.toFixed(1) ?? "",
-        grade.bim3?.toFixed(1) ?? "",
-        grade.bim4?.toFixed(1) ?? "",
-        grade.average?.toFixed(1) ?? "",
-        statusConfig[grade.status].label,
-      ];
-      csvRows.push(row.join(","));
-    });
-    
-    // Criar arquivo CSV
-    const csvContent = csvRows.join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    
-    const subjectNames: Record<string, string> = {
-      mat: "Matematica",
-      por: "Portugues",
-      fis: "Fisica",
-      qui: "Quimica",
-      bio: "Biologia",
-    };
-    
-    link.setAttribute("href", url);
-    link.setAttribute("download", `notas_${subjectNames[selectedSubject] || "disciplina"}_${selectedClass}_${new Date().toISOString().split("T")[0]}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleGradeChange = (gradeId: string, field: "bim1" | "bim2" | "bim3" | "bim4", value: string) => {
+  const handleGradeChange = (studentId: string, field: "bim1" | "bim2" | "bim3" | "bim4", value: string) => {
     const numValue = value === "" ? null : parseFloat(value);
     if (numValue !== null && (isNaN(numValue) || numValue < 0 || numValue > 10)) {
       return; // Ignorar valores inválidos
@@ -229,16 +208,19 @@ const Notas = () => {
 
     setGrades((prevGrades) => {
       const updatedGrades = prevGrades.map((grade) => {
-        if (grade.id === gradeId) {
+        if (grade.studentId === studentId) {
           const updatedGrade = {
             ...grade,
-            [field]: numValue,
+            [field]: {
+              ...grade[field],
+              score: numValue,
+            },
           };
           const { average, status } = calculateAverageAndStatus(
-            updatedGrade.bim1,
-            updatedGrade.bim2,
-            updatedGrade.bim3,
-            updatedGrade.bim4
+            updatedGrade.bim1.score,
+            updatedGrade.bim2.score,
+            updatedGrade.bim3.score,
+            updatedGrade.bim4.score
           );
           return {
             ...updatedGrade,
@@ -252,28 +234,89 @@ const Notas = () => {
     });
   };
 
-  const handleSave = () => {
-    // Recalcular todas as médias e status para garantir consistência
-    const updatedGrades = grades.map((grade) => {
-      const { average, status } = calculateAverageAndStatus(
-        grade.bim1,
-        grade.bim2,
-        grade.bim3,
-        grade.bim4
-      );
-      return {
-        ...grade,
-        average,
-        status,
-      };
-    });
+  const handleSave = async () => {
+    if (!selectedClassId || !selectedSubjectId) {
+      toast.error("Por favor, selecione uma turma e uma disciplina.");
+      return;
+    }
 
-    setGrades(updatedGrades);
-    
-    // Aqui você pode adicionar lógica para salvar no backend
-    // Por enquanto, apenas mostra uma mensagem de sucesso
-    alert("Notas salvas com sucesso!");
+    try {
+      setSaving(true);
+
+      // Preparar dados para salvar
+      const gradesToSave: Array<{
+        student_id: string;
+        subject_id: string;
+        grading_period_id: string;
+        score: number | null;
+      }> = [];
+
+      grades.forEach(grade => {
+        // Bimestre 1
+        if (grade.bim1.periodId) {
+          gradesToSave.push({
+            student_id: grade.studentId,
+            subject_id: selectedSubjectId,
+            grading_period_id: grade.bim1.periodId,
+            score: grade.bim1.score,
+          });
+        }
+        // Bimestre 2
+        if (grade.bim2.periodId) {
+          gradesToSave.push({
+            student_id: grade.studentId,
+            subject_id: selectedSubjectId,
+            grading_period_id: grade.bim2.periodId,
+            score: grade.bim2.score,
+          });
+        }
+        // Bimestre 3
+        if (grade.bim3.periodId) {
+          gradesToSave.push({
+            student_id: grade.studentId,
+            subject_id: selectedSubjectId,
+            grading_period_id: grade.bim3.periodId,
+            score: grade.bim3.score,
+          });
+        }
+        // Bimestre 4
+        if (grade.bim4.periodId) {
+          gradesToSave.push({
+            student_id: grade.studentId,
+            subject_id: selectedSubjectId,
+            grading_period_id: grade.bim4.periodId,
+            score: grade.bim4.score,
+          });
+        }
+      });
+
+      // Salvar notas
+      await gradesService.upsertGrades(gradesToSave);
+
+      toast.success("Notas salvas com sucesso!");
+      
+      // Recarregar notas para atualizar IDs
+      await loadGrades();
+    } catch (error: any) {
+      console.error("Erro ao salvar notas:", error);
+      toast.error("Erro ao salvar notas: " + (error?.message || "Erro desconhecido"));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const selectedClassName = classes.find(c => c.id === selectedClassId)?.name || "";
+  const selectedSubjectName = subjects.find(s => s.id === selectedSubjectId)?.name || "";
+
+  if (loading && grades.length === 0) {
+    return (
+      <MainLayout title="Notas" subtitle="Gerencie as notas e avaliações dos alunos">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout title="Notas" subtitle="Gerencie as notas e avaliações dos alunos">
@@ -281,45 +324,45 @@ const Notas = () => {
         {/* Header Actions */}
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-4">
-            <Select value={selectedClass} onValueChange={setSelectedClass}>
+            <Select value={selectedClassId} onValueChange={setSelectedClassId}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Selecione a turma" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="7a">7º Ano A</SelectItem>
-                <SelectItem value="7b">7º Ano B</SelectItem>
-                <SelectItem value="8a">8º Ano A</SelectItem>
-                <SelectItem value="8b">8º Ano B</SelectItem>
-                <SelectItem value="9a">9º Ano A</SelectItem>
-                <SelectItem value="9b">9º Ano B</SelectItem>
+                {classes.map((cls) => (
+                  <SelectItem key={cls.id} value={cls.id}>
+                    {cls.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={selectedSubject} onValueChange={setSelectedSubject}>
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Selecione a disciplina" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="mat">Matemática</SelectItem>
-                <SelectItem value="por">Português</SelectItem>
-                <SelectItem value="fis">Física</SelectItem>
-                <SelectItem value="qui">Química</SelectItem>
-                <SelectItem value="bio">Biologia</SelectItem>
+                {subjects.map((subject) => (
+                  <SelectItem key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Badge variant="secondary">Ano Letivo: 2024</Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleImport}>
-              <FileSpreadsheet className="w-4 h-4" />
-              Importar
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
-              <Download className="w-4 h-4" />
-              Exportar
-            </Button>
-            <Button size="sm" className="gap-2" onClick={handleSave}>
-              <Save className="w-4 h-4" />
-              Salvar
+            <Button size="sm" className="gap-2" onClick={handleSave} disabled={saving || !selectedClassId || !selectedSubjectId}>
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Salvar
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -329,164 +372,178 @@ const Notas = () => {
           <CardHeader className="pb-0">
             <CardTitle className="flex items-center gap-2 text-lg">
               <FileSpreadsheet className="w-5 h-5" />
-              Matemática - 9º Ano A
+              {selectedSubjectName} - {selectedClassName}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse min-w-[800px]">
-                <thead>
-                  <tr className="bg-muted/50">
-                    <th className="p-3 text-left text-sm font-semibold text-foreground border-b border-border">
-                      Aluno
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
-                      1º Bim
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
-                      2º Bim
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
-                      3º Bim
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
-                      4º Bim
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
-                      Média
-                    </th>
-                    <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-28">
-                      Situação
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grades.map((grade, index) => (
-                    <tr
-                      key={grade.id}
-                      className={cn(
-                        "animate-fade-in hover:bg-muted/30 transition-colors",
-                        index % 2 === 0 ? "bg-background" : "bg-muted/20"
-                      )}
-                      style={{ animationDelay: `${index * 30}ms` }}
-                    >
-                      <td className="p-3 border-b border-border">
-                        <div>
-                          <p className="font-medium text-sm text-foreground">{grade.studentName}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{grade.enrollment}</p>
-                        </div>
-                      </td>
-                      <td className="p-3 border-b border-border">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="10"
-                          value={grade.bim1 ?? ""}
-                          onChange={(e) => handleGradeChange(grade.id, "bim1", e.target.value)}
-                          className={cn(
-                            "w-full text-center h-9",
-                            getGradeColor(grade.bim1)
-                          )}
-                        />
-                      </td>
-                      <td className="p-3 border-b border-border">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="10"
-                          value={grade.bim2 ?? ""}
-                          onChange={(e) => handleGradeChange(grade.id, "bim2", e.target.value)}
-                          className={cn(
-                            "w-full text-center h-9",
-                            getGradeColor(grade.bim2)
-                          )}
-                        />
-                      </td>
-                      <td className="p-3 border-b border-border">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="10"
-                          value={grade.bim3 ?? ""}
-                          onChange={(e) => handleGradeChange(grade.id, "bim3", e.target.value)}
-                          className={cn(
-                            "w-full text-center h-9",
-                            getGradeColor(grade.bim3)
-                          )}
-                        />
-                      </td>
-                      <td className="p-3 border-b border-border">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="10"
-                          value={grade.bim4 ?? ""}
-                          onChange={(e) => handleGradeChange(grade.id, "bim4", e.target.value)}
-                          className={cn(
-                            "w-full text-center h-9",
-                            getGradeColor(grade.bim4)
-                          )}
-                        />
-                      </td>
-                      <td className="p-3 border-b border-border text-center">
-                        <span
-                          className={cn(
-                            "font-bold text-lg",
-                            getGradeColor(grade.average)
-                          )}
-                        >
-                          {grade.average?.toFixed(1) ?? "—"}
-                        </span>
-                      </td>
-                      <td className="p-3 border-b border-border text-center">
-                        <Badge variant="outline" className={statusConfig[grade.status].className}>
-                          {statusConfig[grade.status].label}
-                        </Badge>
-                      </td>
+            {grades.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">
+                {selectedClassId && selectedSubjectId 
+                  ? "Nenhum aluno encontrado nesta turma."
+                  : "Selecione uma turma e uma disciplina para ver as notas."}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="p-3 text-left text-sm font-semibold text-foreground border-b border-border">
+                        Aluno
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
+                        1º Bim
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
+                        2º Bim
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
+                        3º Bim
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
+                        4º Bim
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-24">
+                        Média
+                      </th>
+                      <th className="p-3 text-center text-sm font-semibold text-foreground border-b border-border w-28">
+                        Situação
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {grades.map((grade, index) => (
+                      <tr
+                        key={grade.studentId}
+                        className={cn(
+                          "animate-fade-in hover:bg-muted/30 transition-colors",
+                          index % 2 === 0 ? "bg-background" : "bg-muted/20"
+                        )}
+                        style={{ animationDelay: `${index * 30}ms` }}
+                      >
+                        <td className="p-3 border-b border-border">
+                          <div>
+                            <p className="font-medium text-sm text-foreground">{grade.studentName}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{grade.enrollment}</p>
+                          </div>
+                        </td>
+                        <td className="p-3 border-b border-border">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={grade.bim1.score ?? ""}
+                            onChange={(e) => handleGradeChange(grade.studentId, "bim1", e.target.value)}
+                            className={cn(
+                              "w-full text-center h-9",
+                              getGradeColor(grade.bim1.score)
+                            )}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="p-3 border-b border-border">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={grade.bim2.score ?? ""}
+                            onChange={(e) => handleGradeChange(grade.studentId, "bim2", e.target.value)}
+                            className={cn(
+                              "w-full text-center h-9",
+                              getGradeColor(grade.bim2.score)
+                            )}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="p-3 border-b border-border">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={grade.bim3.score ?? ""}
+                            onChange={(e) => handleGradeChange(grade.studentId, "bim3", e.target.value)}
+                            className={cn(
+                              "w-full text-center h-9",
+                              getGradeColor(grade.bim3.score)
+                            )}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="p-3 border-b border-border">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={grade.bim4.score ?? ""}
+                            onChange={(e) => handleGradeChange(grade.studentId, "bim4", e.target.value)}
+                            className={cn(
+                              "w-full text-center h-9",
+                              getGradeColor(grade.bim4.score)
+                            )}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="p-3 border-b border-border text-center">
+                          <span
+                            className={cn(
+                              "font-bold text-lg",
+                              getGradeColor(grade.average)
+                            )}
+                          >
+                            {grade.average?.toFixed(1) ?? "—"}
+                          </span>
+                        </td>
+                        <td className="p-3 border-b border-border text-center">
+                          <Badge variant="outline" className={statusConfig[grade.status].className}>
+                            {statusConfig[grade.status].label}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <p className="text-sm text-muted-foreground">Média da Turma</p>
-            <p className="text-2xl font-bold text-foreground">
-              {(() => {
-                const averages = grades.map((g) => g.average).filter((a) => a !== null) as number[];
-                if (averages.length === 0) return "—";
-                const classAverage = averages.reduce((sum, avg) => sum + avg, 0) / averages.length;
-                return classAverage.toFixed(1);
-              })()}
-            </p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-muted-foreground">Aprovados</p>
-            <p className="text-2xl font-bold text-success">
-              {grades.filter((g) => g.status === "approved").length}
-            </p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-muted-foreground">Em Recuperação</p>
-            <p className="text-2xl font-bold text-warning">
-              {grades.filter((g) => g.status === "pending").length}
-            </p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-muted-foreground">Reprovados</p>
-            <p className="text-2xl font-bold text-destructive">
-              {grades.filter((g) => g.status === "failed").length}
-            </p>
-          </Card>
-        </div>
+        {grades.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <p className="text-sm text-muted-foreground">Média da Turma</p>
+              <p className="text-2xl font-bold text-foreground">
+                {(() => {
+                  const averages = grades.map((g) => g.average).filter((a) => a !== null) as number[];
+                  if (averages.length === 0) return "—";
+                  const classAverage = averages.reduce((sum, avg) => sum + avg, 0) / averages.length;
+                  return classAverage.toFixed(1);
+                })()}
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-sm text-muted-foreground">Aprovados</p>
+              <p className="text-2xl font-bold text-success">
+                {grades.filter((g) => g.status === "approved").length}
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-sm text-muted-foreground">Em Recuperação</p>
+              <p className="text-2xl font-bold text-warning">
+                {grades.filter((g) => g.status === "pending").length}
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-sm text-muted-foreground">Reprovados</p>
+              <p className="text-2xl font-bold text-destructive">
+                {grades.filter((g) => g.status === "failed").length}
+              </p>
+            </Card>
+          </div>
+        )}
       </div>
     </MainLayout>
   );

@@ -208,18 +208,21 @@ const Professores = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
 
     // Validação básica
-    if (!formData.name || !formData.email || !formData.phone || !formData.qualification || formData.subjects.length === 0) {
-      toast.error("Por favor, preencha todos os campos obrigatórios e selecione pelo menos uma disciplina.");
+    if (!formData.name || !formData.email || !formData.phone || !formData.qualification) {
+      toast.error("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
+
+    // Disciplinas são opcionais - podem ser associadas depois
 
     try {
       setIsSubmitting(true);
 
       // Criar professor
-      await teachersService.create(
+      const newTeacher = await teachersService.create(
         {
           full_name: formData.name,
           email: formData.email,
@@ -230,12 +233,15 @@ const Professores = () => {
         formData.subjects
       );
 
-      toast.success("Professor cadastrado com sucesso!");
-      handleCloseDialog();
-      loadData();
+      if (newTeacher) {
+        toast.success("Professor cadastrado com sucesso!");
+        handleCloseDialog();
+        await loadData();
+      }
     } catch (error: any) {
-      toast.error("Erro ao cadastrar professor: " + error.message);
-      console.error(error);
+      console.error("Erro ao cadastrar professor:", error);
+      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido ao cadastrar professor";
+      toast.error("Erro ao cadastrar professor: " + errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -335,11 +341,11 @@ const Professores = () => {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Disciplinas *</Label>
+                  <Label>Disciplinas (opcional)</Label>
                   <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
                     {availableSubjects.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        Nenhuma disciplina cadastrada. Cadastre disciplinas primeiro.
+                        Nenhuma disciplina cadastrada. Você pode cadastrar o professor agora e associar disciplinas depois.
                       </p>
                     ) : (
                       availableSubjects.map((subject) => (

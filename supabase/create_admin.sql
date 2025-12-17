@@ -12,14 +12,14 @@ SET role = 'admin'
 WHERE user_id = (
   SELECT id 
   FROM auth.users 
-  WHERE email = 'admin@mail.com'
+  WHERE email = 'admin@gmail.com'
 );
 
 -- Se o usuário não tiver role ainda, criar uma nova
 INSERT INTO public.user_roles (user_id, role)
 SELECT id, 'admin'
 FROM auth.users
-WHERE email = 'admin@mail.com'
+WHERE email = 'admin@gmail.com'
 AND NOT EXISTS (
   SELECT 1 
   FROM public.user_roles 
@@ -35,5 +35,5 @@ SELECT
 FROM auth.users u
 LEFT JOIN public.user_roles ur ON u.id = ur.user_id
 LEFT JOIN public.profiles p ON u.id = p.id
-WHERE u.email = 'admin@mail.com';
+WHERE u.email = 'admin@gmail.com';
 

@@ -143,10 +143,18 @@ const Disciplinas = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
 
     // Validação básica
-    if (!formData.name || !formData.code || !formData.teacherId || !formData.hours) {
-      toast.error("Por favor, preencha todos os campos obrigatórios.");
+    if (!formData.name || !formData.hours) {
+      toast.error("Por favor, preencha o nome e as horas da disciplina.");
+      return;
+    }
+
+    // Validar horas
+    const hours = parseInt(formData.hours);
+    if (isNaN(hours) || hours <= 0) {
+      toast.error("Por favor, informe um número válido de horas.");
       return;
     }
 
@@ -155,28 +163,39 @@ const Disciplinas = () => {
 
       // Criar disciplina
       const newSubject = await subjectsService.create({
-        name: formData.name,
-        code: formData.code || generateCode(formData.name),
-        workload_hours: parseInt(formData.hours),
+        name: formData.name.trim(),
+        code: (formData.code || generateCode(formData.name)).trim().toUpperCase(),
+        workload_hours: hours,
         color: formData.color,
       });
 
-      // Associar professor à disciplina
-      if (formData.teacherId) {
-        await supabase
+      if (!newSubject) {
+        throw new Error("Não foi possível criar a disciplina");
+      }
+
+      // Associar professor à disciplina (se fornecido)
+      if (formData.teacherId && formData.teacherId.trim() !== '') {
+        const { error: teacherSubjectError } = await supabase
           .from('teacher_subjects')
           .insert({
             teacher_id: formData.teacherId,
             subject_id: newSubject.id,
           });
+        
+        if (teacherSubjectError) {
+          console.error('Erro ao associar professor:', teacherSubjectError);
+          // Não bloqueia o cadastro da disciplina se houver erro na associação
+          toast.warning("Disciplina criada, mas houve erro ao associar o professor. Você pode associar depois.");
+        }
       }
 
       toast.success("Disciplina cadastrada com sucesso!");
       handleCloseDialog();
-      loadData();
+      await loadData();
     } catch (error: any) {
-      toast.error("Erro ao cadastrar disciplina: " + error.message);
-      console.error(error);
+      console.error("Erro ao cadastrar disciplina:", error);
+      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido ao cadastrar disciplina";
+      toast.error("Erro ao cadastrar disciplina: " + errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -299,16 +318,17 @@ const Disciplinas = () => {
                   </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="teacher">Professor *</Label>
+                  <Label htmlFor="teacher">Professor (opcional)</Label>
                   <Select
                     value={formData.teacherId}
                     onValueChange={(value) => setFormData({ ...formData, teacherId: value })}
                     disabled={isSubmitting}
                   >
                     <SelectTrigger id="teacher">
-                      <SelectValue placeholder="Selecione o professor" />
+                      <SelectValue placeholder="Selecione o professor (opcional)" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="">Nenhum (associar depois)</SelectItem>
                       {teachers.map((teacher) => (
                         <SelectItem key={teacher.id} value={teacher.id}>
                           {teacher.full_name}
@@ -316,6 +336,9 @@ const Disciplinas = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Você pode associar um professor depois, se necessário
+                  </p>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="hours">Horas por Semana *</Label>
