@@ -49,13 +49,14 @@ interface Teacher {
   email: string;
   subjects: string[];
   qualification: string;
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "pending";
   phone: string;
 }
 
 const statusConfig = {
   active: { label: "Ativo", className: "bg-success/10 text-success border-success/20" },
   inactive: { label: "Inativo", className: "bg-destructive/10 text-destructive border-destructive/20" },
+  pending: { label: "Pendente", className: "bg-warning/10 text-warning border-warning/20" },
 };
 
 const Professores = () => {
@@ -75,7 +76,7 @@ const Professores = () => {
     phone: "",
     qualification: "",
     subjects: [] as string[],
-    status: "active" as "active" | "inactive",
+    status: "active" as "active" | "inactive" | "pending",
   });
 
   useEffect(() => {
@@ -97,7 +98,7 @@ const Professores = () => {
         email: teacher.email,
         phone: teacher.phone || "",
         qualification: teacher.qualification || "",
-        status: (teacher.status === "active" ? "active" : "inactive") as "active" | "inactive",
+        status: (teacher.status === "active" || teacher.status === "pending" || teacher.status === "inactive" ? teacher.status : "active") as "active" | "inactive" | "pending",
         subjects: teacher.subjects?.map(s => s.subject.name) || [],
       }));
 
@@ -157,7 +158,7 @@ const Professores = () => {
           email: teacherData.email,
           phone: teacherData.phone || "",
           qualification: teacherData.qualification || "",
-          status: (teacherData.status === "active" ? "active" : "inactive") as "active" | "inactive",
+          status: (teacherData.status === "active" || teacherData.status === "pending" || teacherData.status === "inactive" ? teacherData.status : "active") as "active" | "inactive" | "pending",
           subjects: teacherData.subjects?.map(s => s.subject.name) || [],
         });
         setFormData({
@@ -166,7 +167,7 @@ const Professores = () => {
           phone: teacherData.phone || "",
           qualification: teacherData.qualification || "",
           subjects: teacherData.subjects?.map(s => s.subject.id) || [],
-          status: (teacherData.status === "active" ? "active" : "inactive") as "active" | "inactive",
+          status: (teacherData.status === "active" || teacherData.status === "pending" || teacherData.status === "inactive" ? teacherData.status : "active") as "active" | "inactive" | "pending",
         });
         setIsDialogOpen(true);
       }
@@ -424,8 +425,8 @@ const Professores = () => {
                 </div>
                 <div className="grid gap-2">
                   <Label className="text-muted-foreground">Status</Label>
-                  <Badge variant="outline" className={statusConfig[viewingTeacher.status === "active" ? "active" : "inactive"].className}>
-                    {statusConfig[viewingTeacher.status === "active" ? "active" : "inactive"].label}
+                  <Badge variant="outline" className={statusConfig[viewingTeacher.status].className}>
+                    {statusConfig[viewingTeacher.status].label}
                   </Badge>
                 </div>
               </div>
@@ -533,7 +534,7 @@ const Professores = () => {
                   <Label htmlFor="status">Status *</Label>
                   <Select
                     value={formData.status}
-                    onValueChange={(value: "active" | "inactive") =>
+                    onValueChange={(value: "active" | "inactive" | "pending") =>
                       setFormData({ ...formData, status: value })
                     }
                     disabled={isSubmitting}
@@ -544,6 +545,7 @@ const Professores = () => {
                     <SelectContent>
                       <SelectItem value="active">Ativo</SelectItem>
                       <SelectItem value="inactive">Inativo</SelectItem>
+                      <SelectItem value="pending">Pendente</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

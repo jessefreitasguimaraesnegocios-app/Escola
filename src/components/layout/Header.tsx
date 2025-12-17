@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface HeaderProps {
   title: string;
@@ -29,34 +29,52 @@ interface Notification {
   actionPath?: string;
 }
 
+// Notificações iniciais
+const initialNotifications: Notification[] = [
+  {
+    id: '1',
+    title: 'Nova matrícula pendente',
+    message: 'João Silva aguarda aprovação',
+    type: 'enrollment',
+    actionPath: '/alunos'
+  },
+  {
+    id: '2',
+    title: 'Notas lançadas',
+    message: 'Prof. Maria lançou notas de Matemática',
+    type: 'grade',
+    actionPath: '/notas'
+  },
+  {
+    id: '3',
+    title: 'Reunião agendada',
+    message: 'Conselho de classe - 15/01',
+    type: 'calendar',
+    actionPath: '/calendario'
+  }
+];
+
+// Estado persistente fora do componente para manter entre remontagens
+const persistedNotifications = { value: [...initialNotifications] };
+
 export function Header({ title, subtitle }: HeaderProps) {
   const { user, signOut, roles } = useAuth();
   const navigate = useNavigate();
 
-  // Estado para notificações
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      title: 'Nova matrícula pendente',
-      message: 'João Silva aguarda aprovação',
-      type: 'enrollment',
-      actionPath: '/alunos'
-    },
-    {
-      id: '2',
-      title: 'Notas lançadas',
-      message: 'Prof. Maria lançou notas de Matemática',
-      type: 'grade',
-      actionPath: '/notas'
-    },
-    {
-      id: '3',
-      title: 'Reunião agendada',
-      message: 'Conselho de classe - 15/01',
-      type: 'calendar',
-      actionPath: '/calendario'
-    }
-  ]);
+  // Estado para notificações - usa valor persistido na inicialização
+  const [notifications, setNotifications] = useState<Notification[]>(() => {
+    return persistedNotifications.value.length > 0 
+      ? persistedNotifications.value 
+      : [...initialNotifications];
+  });
+
+  // Sincronizar estado persistente quando o estado muda
+  useEffect(() => {
+    persistedNotifications.value = notifications;
+  }, [notifications]);
+
+  // Estado para controlar se o dropdown de notificações está aberto
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
@@ -80,10 +98,17 @@ export function Header({ title, subtitle }: HeaderProps) {
   const notificationCount = notifications.length;
 
   const handleNotificationClick = (notification: Notification) => {
-    // Remover a notificação da lista
-    setNotifications(prev => 
-      prev.filter(n => n.id !== notification.id)
-    );
+    // Remover a notificação da lista imediatamente
+    setNotifications(prev => {
+      const updated = prev.filter(n => n.id !== notification.id);
+      persistedNotifications.value = updated;
+      return updated;
+    });
+
+    // Fechar o dropdown após um pequeno delay para melhor UX
+    setTimeout(() => {
+      setIsNotificationsOpen(false);
+    }, 150);
 
     // Navegar para a página relacionada
     if (notification.actionPath) {
@@ -112,37 +137,52 @@ export function Header({ title, subtitle }: HeaderProps) {
         </div>
 
         {/* Notifications */}
-        <DropdownMenu>
+        <DropdownMenu open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="w-5 h-5 text-muted-foreground" />
-              {notificationCount > 0 && (
+              {notificationCount > 0 ? (
                 <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-primary">
                   {notificationCount}
                 </Badge>
-              )}
+              ) : null}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Notificações</DropdownMenuLabel>
+            <DropdownMenuLabel className="flex items-center justify-between">
+              <span>Notificações</span>
+              {notificationCount > 0 && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  {notificationCount}
+                </Badge>
+              )}
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             {notifications.length === 0 ? (
               <DropdownMenuItem disabled className="text-center py-6 text-muted-foreground">
-                Nenhuma notificação
+                <div className="flex flex-col items-center gap-2 w-full">
+                  <Bell className="h-8 w-8 text-muted-foreground/50" />
+                  <span>Nenhuma notificação</span>
+                </div>
               </DropdownMenuItem>
             ) : (
-              notifications.map((notification) => (
-                <DropdownMenuItem
-                  key={notification.id}
-                  className="flex flex-col items-start gap-1 py-3 cursor-pointer bg-accent"
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  <span className="font-semibold">
-                    {notification.title}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{notification.message}</span>
-                </DropdownMenuItem>
-              ))
+              <div className="max-h-[400px] overflow-y-auto">
+                {notifications.map((notification) => (
+                  <DropdownMenuItem
+                    key={notification.id}
+                    className="flex flex-col items-start gap-1 py-3 cursor-pointer hover:bg-accent transition-colors"
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      handleNotificationClick(notification);
+                    }}
+                  >
+                    <span className="font-semibold text-sm">
+                      {notification.title}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{notification.message}</span>
+                  </DropdownMenuItem>
+                ))}
+              </div>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
