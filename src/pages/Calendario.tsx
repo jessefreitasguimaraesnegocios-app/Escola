@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2 } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2, Trash2, MoreHorizontal, Edit } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -13,6 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,6 +33,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { calendarService } from "@/lib/supabase/calendar";
 import type { Database } from "@/integrations/supabase/types";
@@ -66,7 +82,10 @@ const Calendario = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     date: "",
@@ -125,6 +144,7 @@ const Calendario = () => {
     .slice(0, 5);
 
   const handleOpenDialog = () => {
+    setEditingEvent(null);
     setIsDialogOpen(true);
     // Preencher data com o primeiro dia do mês atual se não houver seleção
     const today = new Date();
@@ -139,6 +159,24 @@ const Calendario = () => {
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
+    setEditingEvent(null);
+    setFormData({
+      title: "",
+      date: "",
+      type: "event",
+      description: "",
+    });
+  };
+
+  const handleEdit = (event: Event) => {
+    setEditingEvent(event);
+    setFormData({
+      title: event.title,
+      date: event.date,
+      type: event.type,
+      description: event.description || "",
+    });
+    setIsDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,23 +191,55 @@ const Calendario = () => {
     try {
       setIsSubmitting(true);
 
-      // Criar evento
-      await calendarService.create({
-        title: formData.title,
-        start_date: formData.date,
-        event_type: formData.type,
-        description: formData.description || null,
-        all_day: true,
-      });
+      if (editingEvent) {
+        // Atualizar evento
+        await calendarService.update(editingEvent.id, {
+          title: formData.title,
+          start_date: formData.date,
+          event_type: formData.type,
+          description: formData.description || null,
+        });
 
-      toast.success("Evento cadastrado com sucesso!");
+        toast.success("Evento atualizado com sucesso!");
+      } else {
+        // Criar evento
+        await calendarService.create({
+          title: formData.title,
+          start_date: formData.date,
+          event_type: formData.type,
+          description: formData.description || null,
+          all_day: true,
+        });
+
+        toast.success("Evento cadastrado com sucesso!");
+      }
+
       handleCloseDialog();
       loadEvents();
     } catch (error: any) {
-      toast.error("Erro ao cadastrar evento: " + error.message);
+      toast.error((editingEvent ? "Erro ao atualizar evento: " : "Erro ao cadastrar evento: ") + error.message);
       console.error(error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteClick = (event: Event) => {
+    setDeletingEvent(event);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingEvent) return;
+
+    try {
+      await calendarService.delete(deletingEvent.id);
+      toast.success("Evento excluído com sucesso!");
+      setIsDeleteDialogOpen(false);
+      setDeletingEvent(null);
+      loadEvents();
+    } catch (error: any) {
+      toast.error("Erro ao excluir evento: " + error.message);
     }
   };
 
@@ -300,7 +370,7 @@ const Calendario = () => {
                   upcomingEvents.map((event, index) => (
                     <div
                       key={event.id}
-                      className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors animate-slide-in"
+                      className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors animate-slide-in group"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       <div className={cn("w-2 h-2 rounded-full mt-2", typeConfig[event.type]?.dot || typeConfig.other.dot)} />
@@ -315,9 +385,42 @@ const Calendario = () => {
                           })}
                         </p>
                       </div>
-                      <Badge variant="outline" className={cn("text-xs", typeConfig[event.type]?.color || typeConfig.other.color)}>
-                        {typeConfig[event.type]?.label || typeConfig.other.label}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={cn("text-xs", typeConfig[event.type]?.color || typeConfig.other.color)}>
+                          {typeConfig[event.type]?.label || typeConfig.other.label}
+                        </Badge>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="w-3.5 h-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(event);
+                            }}>
+                              <Edit className="w-4 h-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteClick(event);
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Excluir
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   ))
                 )}
@@ -341,13 +444,16 @@ const Calendario = () => {
           </div>
         </div>
 
-        {/* Dialog para Novo Evento */}
+        {/* Dialog para Novo/Editar Evento */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Cadastrar Novo Evento</DialogTitle>
+              <DialogTitle>{editingEvent ? "Editar Evento" : "Cadastrar Novo Evento"}</DialogTitle>
               <DialogDescription>
-                Preencha os dados abaixo para cadastrar um novo evento no calendário.
+                {editingEvent 
+                  ? "Atualize os dados do evento abaixo."
+                  : "Preencha os dados abaixo para cadastrar um novo evento no calendário."
+                }
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
@@ -426,13 +532,37 @@ const Calendario = () => {
                       Cadastrando...
                     </>
                   ) : (
-                    "Cadastrar"
+                    editingEvent ? "Atualizar" : "Cadastrar"
                   )}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Dialog de Confirmação de Exclusão */}
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir o evento <strong>{deletingEvent?.title}</strong>? 
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeletingEvent(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );

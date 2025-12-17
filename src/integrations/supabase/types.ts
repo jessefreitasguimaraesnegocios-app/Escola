@@ -529,7 +529,7 @@ export type Database = {
     Enums: {
       app_role: "admin" | "teacher" | "student" | "parent"
       enrollment_status: "enrolled" | "pending" | "cancelled" | "completed"
-      event_type: "holiday" | "exam" | "meeting" | "deadline" | "other"
+      event_type: "holiday" | "exam" | "meeting" | "deadline" | "event" | "other"
       grading_period_type: "bimonthly" | "semestral"
       student_status: "active" | "inactive" | "graduated" | "transferred"
     }

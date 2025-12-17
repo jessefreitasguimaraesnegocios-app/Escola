@@ -18,6 +18,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -63,7 +73,10 @@ const Disciplinas = () => {
   const [teachers, setTeachers] = useState<Array<{ id: string; full_name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingSubject, setEditingSubject] = useState<SubjectWithTeacher | null>(null);
+  const [deletingSubject, setDeletingSubject] = useState<SubjectWithTeacher | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     code: "",
@@ -119,6 +132,7 @@ const Disciplinas = () => {
   };
 
   const handleOpenDialog = () => {
+    setEditingSubject(null);
     setIsDialogOpen(true);
     setFormData({
       name: "",
@@ -131,6 +145,56 @@ const Disciplinas = () => {
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
+    setEditingSubject(null);
+    setFormData({
+      name: "",
+      code: "",
+      teacherId: "",
+      hours: "",
+      color: "bg-chart-1",
+    });
+  };
+
+  const handleEdit = async (subject: SubjectWithTeacher) => {
+    try {
+      // Buscar professor associado
+      const { data: teacherSubjects } = await supabase
+        .from('teacher_subjects')
+        .select('teacher_id')
+        .eq('subject_id', subject.id)
+        .limit(1);
+
+      setEditingSubject(subject);
+      setFormData({
+        name: subject.name,
+        code: subject.code,
+        teacherId: teacherSubjects?.[0]?.teacher_id || "",
+        hours: subject.workload_hours?.toString() || "",
+        color: subject.color || "bg-chart-1",
+      });
+      setIsDialogOpen(true);
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados da disciplina: " + error.message);
+    }
+  };
+
+  const handleDeleteClick = (subject: SubjectWithTeacher) => {
+    setDeletingSubject(subject);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingSubject) return;
+
+    try {
+      await subjectsService.delete(deletingSubject.id);
+      toast.success("Disciplina excluída com sucesso!");
+      setIsDeleteDialogOpen(false);
+      setDeletingSubject(null);
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao excluir disciplina: " + error.message);
+    }
   };
 
   const handleNameChange = (name: string) => {
@@ -161,41 +225,75 @@ const Disciplinas = () => {
     try {
       setIsSubmitting(true);
 
-      // Criar disciplina
-      const newSubject = await subjectsService.create({
-        name: formData.name.trim(),
-        code: (formData.code || generateCode(formData.name)).trim().toUpperCase(),
-        workload_hours: hours,
-        color: formData.color,
-      });
+      if (editingSubject) {
+        // Atualizar disciplina
+        await subjectsService.update(editingSubject.id, {
+          name: formData.name.trim(),
+          code: formData.code.trim().toUpperCase(),
+          workload_hours: hours,
+          color: formData.color,
+        });
 
-      if (!newSubject) {
-        throw new Error("Não foi possível criar a disciplina");
-      }
-
-      // Associar professor à disciplina (se fornecido)
-      if (formData.teacherId && formData.teacherId.trim() !== '') {
-        const { error: teacherSubjectError } = await supabase
+        // Atualizar associação com professor
+        // Remover associações antigas
+        await supabase
           .from('teacher_subjects')
-          .insert({
-            teacher_id: formData.teacherId,
-            subject_id: newSubject.id,
-          });
-        
-        if (teacherSubjectError) {
-          console.error('Erro ao associar professor:', teacherSubjectError);
-          // Não bloqueia o cadastro da disciplina se houver erro na associação
-          toast.warning("Disciplina criada, mas houve erro ao associar o professor. Você pode associar depois.");
+          .delete()
+          .eq('subject_id', editingSubject.id);
+
+        // Adicionar nova associação (se fornecido)
+        if (formData.teacherId && formData.teacherId.trim() !== '') {
+          const { error: teacherSubjectError } = await supabase
+            .from('teacher_subjects')
+            .insert({
+              teacher_id: formData.teacherId,
+              subject_id: editingSubject.id,
+            });
+          
+          if (teacherSubjectError) {
+            console.error('Erro ao associar professor:', teacherSubjectError);
+            toast.warning("Disciplina atualizada, mas houve erro ao associar o professor.");
+          }
         }
+
+        toast.success("Disciplina atualizada com sucesso!");
+      } else {
+        // Criar disciplina
+        const newSubject = await subjectsService.create({
+          name: formData.name.trim(),
+          code: (formData.code || generateCode(formData.name)).trim().toUpperCase(),
+          workload_hours: hours,
+          color: formData.color,
+        });
+
+        if (!newSubject) {
+          throw new Error("Não foi possível criar a disciplina");
+        }
+
+        // Associar professor à disciplina (se fornecido)
+        if (formData.teacherId && formData.teacherId.trim() !== '') {
+          const { error: teacherSubjectError } = await supabase
+            .from('teacher_subjects')
+            .insert({
+              teacher_id: formData.teacherId,
+              subject_id: newSubject.id,
+            });
+          
+          if (teacherSubjectError) {
+            console.error('Erro ao associar professor:', teacherSubjectError);
+            toast.warning("Disciplina criada, mas houve erro ao associar o professor. Você pode associar depois.");
+          }
+        }
+
+        toast.success("Disciplina cadastrada com sucesso!");
       }
 
-      toast.success("Disciplina cadastrada com sucesso!");
       handleCloseDialog();
       await loadData();
     } catch (error: any) {
-      console.error("Erro ao cadastrar disciplina:", error);
-      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido ao cadastrar disciplina";
-      toast.error("Erro ao cadastrar disciplina: " + errorMessage);
+      console.error("Erro ao salvar disciplina:", error);
+      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido";
+      toast.error((editingSubject ? "Erro ao atualizar disciplina: " : "Erro ao cadastrar disciplina: ") + errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -253,11 +351,14 @@ const Disciplinas = () => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleEdit(subject)}>
                         <Edit className="w-4 h-4 mr-2" />
                         Editar
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">
+                      <DropdownMenuItem 
+                        className="text-destructive"
+                        onClick={() => handleDeleteClick(subject)}
+                      >
                         <Trash2 className="w-4 h-4 mr-2" />
                         Excluir
                       </DropdownMenuItem>
@@ -282,13 +383,16 @@ const Disciplinas = () => {
           ))}
         </div>
 
-        {/* Dialog para Nova Disciplina */}
+        {/* Dialog para Nova/Editar Disciplina */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Cadastrar Nova Disciplina</DialogTitle>
+              <DialogTitle>{editingSubject ? "Editar Disciplina" : "Cadastrar Nova Disciplina"}</DialogTitle>
               <DialogDescription>
-                Preencha os dados abaixo para cadastrar uma nova disciplina no sistema.
+                {editingSubject 
+                  ? "Atualize os dados da disciplina abaixo."
+                  : "Preencha os dados abaixo para cadastrar uma nova disciplina no sistema."
+                }
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
@@ -389,13 +493,37 @@ const Disciplinas = () => {
                       Cadastrando...
                     </>
                   ) : (
-                    "Cadastrar"
+                    editingSubject ? "Atualizar" : "Cadastrar"
                   )}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Dialog de Confirmação de Exclusão */}
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir a disciplina <strong>{deletingSubject?.name}</strong>? 
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeletingSubject(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );

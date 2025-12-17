@@ -19,6 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -52,84 +62,17 @@ const statusConfig = {
   transferred: { label: "Transferido", className: "bg-warning/10 text-warning border-warning/20" },
 };
 
-const columns = [
-  {
-    key: "name",
-    header: "Aluno",
-    render: (student: Student) => (
-      <div className="flex items-center gap-3">
-        <Avatar className="h-9 w-9">
-          <AvatarFallback className="bg-primary/10 text-primary text-sm">
-            {student.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
-          </AvatarFallback>
-        </Avatar>
-        <div>
-          <p className="font-medium text-foreground">{student.name}</p>
-          <p className="text-xs text-muted-foreground">{student.email}</p>
-        </div>
-      </div>
-    ),
-  },
-  {
-    key: "enrollment",
-    header: "Matrícula",
-    render: (student: Student) => (
-      <span className="font-mono text-sm">{student.enrollment}</span>
-    ),
-  },
-  {
-    key: "class",
-    header: "Turma",
-  },
-  {
-    key: "phone",
-    header: "Telefone",
-  },
-  {
-    key: "status",
-    header: "Status",
-    render: (student: Student) => (
-      <Badge variant="outline" className={statusConfig[student.status || 'active'].className}>
-        {statusConfig[student.status || 'active'].label}
-      </Badge>
-    ),
-  },
-  {
-    key: "actions",
-    header: "",
-    className: "w-12",
-    render: (student: Student) => (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MoreHorizontal className="w-4 h-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem>
-            <Eye className="w-4 h-4 mr-2" />
-            Ver Detalhes
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Edit className="w-4 h-4 mr-2" />
-            Editar
-          </DropdownMenuItem>
-          <DropdownMenuItem className="text-destructive">
-            <Trash2 className="w-4 h-4 mr-2" />
-            Excluir
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ),
-  },
-];
-
 const Alunos = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<StudentWithClass | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -172,6 +115,7 @@ const Alunos = () => {
   };
 
   const handleOpenDialog = () => {
+    setEditingStudent(null);
     setIsDialogOpen(true);
     setFormData({
       name: "",
@@ -184,7 +128,146 @@ const Alunos = () => {
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
+    setEditingStudent(null);
+    setFormData({
+      name: "",
+      email: "",
+      classId: "",
+      status: "active",
+      phone: "",
+    });
   };
+
+  const handleViewDetails = async (student: Student) => {
+    try {
+      const studentData = await studentsService.getById(student.id);
+      setViewingStudent(studentData);
+      setIsDetailsDialogOpen(true);
+    } catch (error: any) {
+      toast.error("Erro ao carregar detalhes: " + error.message);
+    }
+  };
+
+  const handleEdit = async (student: Student) => {
+    try {
+      const studentData = await studentsService.getById(student.id);
+      if (studentData) {
+        setEditingStudent({
+          id: studentData.id,
+          name: studentData.full_name,
+          email: studentData.email || "",
+          class: studentData.classes?.name || "Sem turma",
+          status: studentData.status || "active",
+          enrollment: studentData.registration_number,
+          phone: studentData.phone || "",
+        });
+        setFormData({
+          name: studentData.full_name,
+          email: studentData.email || "",
+          classId: studentData.class_id || "",
+          status: studentData.status || "active",
+          phone: studentData.phone || "",
+        });
+        setIsDialogOpen(true);
+      }
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados do aluno: " + error.message);
+    }
+  };
+
+  const handleDeleteClick = (student: Student) => {
+    setDeletingStudent(student);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingStudent) return;
+
+    try {
+      await studentsService.delete(deletingStudent.id);
+      toast.success("Aluno excluído com sucesso!");
+      setIsDeleteDialogOpen(false);
+      setDeletingStudent(null);
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao excluir aluno: " + error.message);
+    }
+  };
+
+  const columns = [
+    {
+      key: "name",
+      header: "Aluno",
+      render: (student: Student) => (
+        <div className="flex items-center gap-3">
+          <Avatar className="h-9 w-9">
+            <AvatarFallback className="bg-primary/10 text-primary text-sm">
+              {student.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="font-medium text-foreground">{student.name}</p>
+            <p className="text-xs text-muted-foreground">{student.email}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "enrollment",
+      header: "Matrícula",
+      render: (student: Student) => (
+        <span className="font-mono text-sm">{student.enrollment}</span>
+      ),
+    },
+    {
+      key: "class",
+      header: "Turma",
+    },
+    {
+      key: "phone",
+      header: "Telefone",
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (student: Student) => (
+        <Badge variant="outline" className={statusConfig[student.status || 'active'].className}>
+          {statusConfig[student.status || 'active'].label}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-12",
+      render: (student: Student) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleViewDetails(student)}>
+              <Eye className="w-4 h-4 mr-2" />
+              Ver Detalhes
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleEdit(student)}>
+              <Edit className="w-4 h-4 mr-2" />
+              Editar
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-destructive"
+              onClick={() => handleDeleteClick(student)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Excluir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,32 +281,46 @@ const Alunos = () => {
     try {
       setIsSubmitting(true);
 
-      // Gerar número de matrícula (ano atual + sequencial)
-      const year = new Date().getFullYear();
-      const existingStudents = await studentsService.getAll();
-      const yearStudents = existingStudents.filter(s => 
-        s.registration_number.startsWith(year.toString())
-      );
-      const nextNumber = yearStudents.length > 0
-        ? Math.max(...yearStudents.map(s => parseInt(s.registration_number.slice(-4)))) + 1
-        : 1;
-      const registrationNumber = `${year}${String(nextNumber).padStart(4, '0')}`;
+      if (editingStudent) {
+        // Atualizar aluno existente
+        await studentsService.update(editingStudent.id, {
+          full_name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          status: formData.status,
+          class_id: formData.classId || null,
+        });
 
-      // Criar aluno
-      await studentsService.create({
-        full_name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        registration_number: registrationNumber,
-        status: formData.status,
-        class_id: formData.classId || null,
-      });
+        toast.success("Aluno atualizado com sucesso!");
+      } else {
+        // Gerar número de matrícula (ano atual + sequencial)
+        const year = new Date().getFullYear();
+        const existingStudents = await studentsService.getAll();
+        const yearStudents = existingStudents.filter(s => 
+          s.registration_number.startsWith(year.toString())
+        );
+        const nextNumber = yearStudents.length > 0
+          ? Math.max(...yearStudents.map(s => parseInt(s.registration_number.slice(-4)))) + 1
+          : 1;
+        const registrationNumber = `${year}${String(nextNumber).padStart(4, '0')}`;
 
-      toast.success("Aluno cadastrado com sucesso!");
+        // Criar aluno
+        await studentsService.create({
+          full_name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          registration_number: registrationNumber,
+          status: formData.status,
+          class_id: formData.classId || null,
+        });
+
+        toast.success("Aluno cadastrado com sucesso!");
+      }
+
       handleCloseDialog();
       loadData();
     } catch (error: any) {
-      toast.error("Erro ao cadastrar aluno: " + error.message);
+      toast.error(editingStudent ? "Erro ao atualizar aluno: " + error.message : "Erro ao cadastrar aluno: " + error.message);
       console.error(error);
     } finally {
       setIsSubmitting(false);
@@ -267,13 +364,73 @@ const Alunos = () => {
           searchKey="name"
         />
 
-        {/* Dialog para Novo Aluno */}
+        {/* Dialog para Ver Detalhes */}
+        <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Detalhes do Aluno</DialogTitle>
+            </DialogHeader>
+            {viewingStudent && (
+              <div className="space-y-4 py-4">
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Nome Completo</Label>
+                  <p className="font-medium">{viewingStudent.full_name}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Matrícula</Label>
+                  <p className="font-mono text-sm">{viewingStudent.registration_number}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Email</Label>
+                  <p>{viewingStudent.email || "Não informado"}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Telefone</Label>
+                  <p>{viewingStudent.phone || "Não informado"}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Turma</Label>
+                  <p>{viewingStudent.classes?.name || "Sem turma"}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Status</Label>
+                  <Badge variant="outline" className={statusConfig[viewingStudent.status || 'active'].className}>
+                    {statusConfig[viewingStudent.status || 'active'].label}
+                  </Badge>
+                </div>
+                {viewingStudent.birth_date && (
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground">Data de Nascimento</Label>
+                    <p>{new Date(viewingStudent.birth_date).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                )}
+                {viewingStudent.parent_name && (
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground">Responsável</Label>
+                    <p>{viewingStudent.parent_name}</p>
+                    {viewingStudent.parent_phone && <p className="text-sm text-muted-foreground">{viewingStudent.parent_phone}</p>}
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
+                Fechar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para Novo/Editar Aluno */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Cadastrar Novo Aluno</DialogTitle>
+              <DialogTitle>{editingStudent ? "Editar Aluno" : "Cadastrar Novo Aluno"}</DialogTitle>
               <DialogDescription>
-                Preencha os dados abaixo para cadastrar um novo aluno no sistema.
+                {editingStudent 
+                  ? "Atualize os dados do aluno abaixo."
+                  : "Preencha os dados abaixo para cadastrar um novo aluno no sistema."
+                }
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
@@ -375,6 +532,30 @@ const Alunos = () => {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Dialog de Confirmação de Exclusão */}
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir o aluno <strong>{deletingStudent?.name}</strong>? 
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeletingStudent(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );

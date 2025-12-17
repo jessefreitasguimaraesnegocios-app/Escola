@@ -19,6 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -48,7 +58,207 @@ const statusConfig = {
   inactive: { label: "Inativo", className: "bg-destructive/10 text-destructive border-destructive/20" },
 };
 
-const columns = [
+const Professores = () => {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [availableSubjects, setAvailableSubjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [deletingTeacher, setDeletingTeacher] = useState<Teacher | null>(null);
+  const [viewingTeacher, setViewingTeacher] = useState<TeacherWithSubjects | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    qualification: "",
+    subjects: [] as string[],
+    status: "active" as "active" | "inactive",
+  });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [teachersData, subjectsData] = await Promise.all([
+        teachersService.getAll(),
+        subjectsService.getAll(),
+      ]);
+
+      // Transformar dados do Supabase para o formato da interface
+      const formattedTeachers: Teacher[] = teachersData.map((teacher) => ({
+        id: teacher.id,
+        name: teacher.full_name,
+        email: teacher.email,
+        phone: teacher.phone || "",
+        qualification: teacher.qualification || "",
+        status: (teacher.status === "active" ? "active" : "inactive") as "active" | "inactive",
+        subjects: teacher.subjects?.map(s => s.subject.name) || [],
+      }));
+
+      setTeachers(formattedTeachers);
+      setAvailableSubjects(subjectsData.map(s => ({ id: s.id, name: s.name })));
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados: " + error.message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenDialog = () => {
+    setEditingTeacher(null);
+    setIsDialogOpen(true);
+    setFormData({
+      name: "",
+      email: "",
+      phone: "",
+      qualification: "",
+      subjects: [],
+      status: "active",
+    });
+  };
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+    setEditingTeacher(null);
+    setFormData({
+      name: "",
+      email: "",
+      phone: "",
+      qualification: "",
+      subjects: [],
+      status: "active",
+    });
+  };
+
+  const handleViewDetails = async (teacher: Teacher) => {
+    try {
+      const teacherData = await teachersService.getById(teacher.id);
+      setViewingTeacher(teacherData);
+      setIsDetailsDialogOpen(true);
+    } catch (error: any) {
+      toast.error("Erro ao carregar detalhes: " + error.message);
+    }
+  };
+
+  const handleEdit = async (teacher: Teacher) => {
+    try {
+      const teacherData = await teachersService.getById(teacher.id);
+      if (teacherData) {
+        setEditingTeacher({
+          id: teacherData.id,
+          name: teacherData.full_name,
+          email: teacherData.email,
+          phone: teacherData.phone || "",
+          qualification: teacherData.qualification || "",
+          status: (teacherData.status === "active" ? "active" : "inactive") as "active" | "inactive",
+          subjects: teacherData.subjects?.map(s => s.subject.name) || [],
+        });
+        setFormData({
+          name: teacherData.full_name,
+          email: teacherData.email,
+          phone: teacherData.phone || "",
+          qualification: teacherData.qualification || "",
+          subjects: teacherData.subjects?.map(s => s.subject.id) || [],
+          status: (teacherData.status === "active" ? "active" : "inactive") as "active" | "inactive",
+        });
+        setIsDialogOpen(true);
+      }
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados do professor: " + error.message);
+    }
+  };
+
+  const handleDeleteClick = (teacher: Teacher) => {
+    setDeletingTeacher(teacher);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingTeacher) return;
+
+    try {
+      await teachersService.delete(deletingTeacher.id);
+      toast.success("Professor excluído com sucesso!");
+      setIsDeleteDialogOpen(false);
+      setDeletingTeacher(null);
+      loadData();
+    } catch (error: any) {
+      toast.error("Erro ao excluir professor: " + error.message);
+    }
+  };
+
+  const handleSubjectToggle = (subjectId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      subjects: prev.subjects.includes(subjectId)
+        ? prev.subjects.filter((s) => s !== subjectId)
+        : [...prev.subjects, subjectId],
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Validação básica
+    if (!formData.name || !formData.email || !formData.phone || !formData.qualification) {
+      toast.error("Por favor, preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      if (editingTeacher) {
+        // Atualizar professor
+        await teachersService.update(
+          editingTeacher.id,
+          {
+            full_name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            qualification: formData.qualification,
+            status: formData.status,
+          },
+          formData.subjects
+        );
+
+        toast.success("Professor atualizado com sucesso!");
+      } else {
+        // Criar professor
+        await teachersService.create(
+          {
+            full_name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            qualification: formData.qualification,
+            status: formData.status,
+          },
+          formData.subjects
+        );
+
+        toast.success("Professor cadastrado com sucesso!");
+      }
+
+      handleCloseDialog();
+      await loadData();
+    } catch (error: any) {
+      console.error("Erro ao salvar professor:", error);
+      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido";
+      toast.error((editingTeacher ? "Erro ao atualizar professor: " : "Erro ao cadastrar professor: ") + errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const columns = [
   {
     key: "name",
     header: "Professor",
@@ -115,15 +325,18 @@ const columns = [
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleViewDetails(teacher)}>
             <Eye className="w-4 h-4 mr-2" />
             Ver Detalhes
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleEdit(teacher)}>
             <Edit className="w-4 h-4 mr-2" />
             Editar
           </DropdownMenuItem>
-          <DropdownMenuItem className="text-destructive">
+          <DropdownMenuItem 
+            className="text-destructive"
+            onClick={() => handleDeleteClick(teacher)}
+          >
             <Trash2 className="w-4 h-4 mr-2" />
             Excluir
           </DropdownMenuItem>
@@ -133,119 +346,6 @@ const columns = [
   },
 ];
 
-const Professores = () => {
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [availableSubjects, setAvailableSubjects] = useState<Array<{ id: string; name: string }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    qualification: "",
-    subjects: [] as string[],
-    status: "active" as "active" | "inactive",
-  });
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [teachersData, subjectsData] = await Promise.all([
-        teachersService.getAll(),
-        subjectsService.getAll(),
-      ]);
-
-      // Transformar dados do Supabase para o formato da interface
-      const formattedTeachers: Teacher[] = teachersData.map((teacher) => ({
-        id: teacher.id,
-        name: teacher.full_name,
-        email: teacher.email,
-        phone: teacher.phone || "",
-        qualification: teacher.qualification || "",
-        status: (teacher.status === "active" ? "active" : "inactive") as "active" | "inactive",
-        subjects: teacher.subjects?.map(s => s.subject.name) || [],
-      }));
-
-      setTeachers(formattedTeachers);
-      setAvailableSubjects(subjectsData.map(s => ({ id: s.id, name: s.name })));
-    } catch (error: any) {
-      toast.error("Erro ao carregar dados: " + error.message);
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOpenDialog = () => {
-    setIsDialogOpen(true);
-    setFormData({
-      name: "",
-      email: "",
-      phone: "",
-      qualification: "",
-      subjects: [],
-      status: "active",
-    });
-  };
-
-  const handleCloseDialog = () => {
-    setIsDialogOpen(false);
-  };
-
-  const handleSubjectToggle = (subjectId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      subjects: prev.subjects.includes(subjectId)
-        ? prev.subjects.filter((s) => s !== subjectId)
-        : [...prev.subjects, subjectId],
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Validação básica
-    if (!formData.name || !formData.email || !formData.phone || !formData.qualification) {
-      toast.error("Por favor, preencha todos os campos obrigatórios.");
-      return;
-    }
-
-    // Disciplinas são opcionais - podem ser associadas depois
-
-    try {
-      setIsSubmitting(true);
-
-      // Criar professor
-      const newTeacher = await teachersService.create(
-        {
-          full_name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          qualification: formData.qualification,
-          status: formData.status,
-        },
-        formData.subjects
-      );
-
-      if (newTeacher) {
-        toast.success("Professor cadastrado com sucesso!");
-        handleCloseDialog();
-        await loadData();
-      }
-    } catch (error: any) {
-      console.error("Erro ao cadastrar professor:", error);
-      const errorMessage = error?.message || error?.error?.message || "Erro desconhecido ao cadastrar professor";
-      toast.error("Erro ao cadastrar professor: " + errorMessage);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -284,13 +384,70 @@ const Professores = () => {
           searchKey="name"
         />
 
-        {/* Dialog para Novo Professor */}
+        {/* Dialog para Ver Detalhes */}
+        <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Detalhes do Professor</DialogTitle>
+            </DialogHeader>
+            {viewingTeacher && (
+              <div className="space-y-4 py-4">
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Nome Completo</Label>
+                  <p className="font-medium">{viewingTeacher.full_name}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Email</Label>
+                  <p>{viewingTeacher.email}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Telefone</Label>
+                  <p>{viewingTeacher.phone || "Não informado"}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Formação</Label>
+                  <p>{viewingTeacher.qualification || "Não informado"}</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Disciplinas</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {viewingTeacher.subjects && viewingTeacher.subjects.length > 0 ? (
+                      viewingTeacher.subjects.map((subj) => (
+                        <Badge key={subj.id} variant="secondary">
+                          {subj.subject.name}
+                        </Badge>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Sem disciplinas associadas</p>
+                    )}
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">Status</Label>
+                  <Badge variant="outline" className={statusConfig[viewingTeacher.status === "active" ? "active" : "inactive"].className}>
+                    {statusConfig[viewingTeacher.status === "active" ? "active" : "inactive"].label}
+                  </Badge>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
+                Fechar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para Novo/Editar Professor */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Cadastrar Novo Professor</DialogTitle>
+              <DialogTitle>{editingTeacher ? "Editar Professor" : "Cadastrar Novo Professor"}</DialogTitle>
               <DialogDescription>
-                Preencha os dados abaixo para cadastrar um novo professor no sistema.
+                {editingTeacher 
+                  ? "Atualize os dados do professor abaixo."
+                  : "Preencha os dados abaixo para cadastrar um novo professor no sistema."
+                }
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
@@ -407,13 +564,37 @@ const Professores = () => {
                       Cadastrando...
                     </>
                   ) : (
-                    "Cadastrar"
+                    editingTeacher ? "Atualizar" : "Cadastrar"
                   )}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Dialog de Confirmação de Exclusão */}
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir o professor <strong>{deletingTeacher?.name}</strong>? 
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeletingTeacher(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );

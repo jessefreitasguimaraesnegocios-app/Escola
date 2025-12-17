@@ -62,7 +62,7 @@ export function Sidebar() {
               <School className="w-5 h-5 text-primary-foreground" />
             </div>
             <span className="font-heading font-semibold text-lg text-sidebar-foreground">
-              EduGestão
+              Smart_Escola
             </span>
           </div>
         )}
