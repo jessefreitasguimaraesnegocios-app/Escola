@@ -55,17 +55,23 @@ const initialNotifications: Notification[] = [
 ];
 
 // Estado persistente fora do componente para manter entre remontagens
-const persistedNotifications = { value: [...initialNotifications] };
+// Inicializa como null para detectar primeira inicialização
+const persistedNotifications: { value: Notification[] | null } = { value: null };
 
 export function Header({ title, subtitle }: HeaderProps) {
   const { user, signOut, roles } = useAuth();
   const navigate = useNavigate();
 
-  // Estado para notificações - usa valor persistido na inicialização
+  // Estado para notificações - usa valor persistido se existir, senão inicia com valores padrão apenas na primeira vez
   const [notifications, setNotifications] = useState<Notification[]>(() => {
-    return persistedNotifications.value.length > 0 
-      ? persistedNotifications.value 
-      : [...initialNotifications];
+    // Se já existe valor persistido (mesmo que seja array vazio), usa ele
+    if (persistedNotifications.value !== null) {
+      return persistedNotifications.value;
+    }
+    // Primeira inicialização: usa valores iniciais
+    const initial = [...initialNotifications];
+    persistedNotifications.value = initial;
+    return initial;
   });
 
   // Sincronizar estado persistente quando o estado muda
