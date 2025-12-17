@@ -26,7 +26,6 @@ interface Notification {
   title: string;
   message: string;
   type: 'enrollment' | 'grade' | 'calendar';
-  read: boolean;
   actionPath?: string;
 }
 
@@ -41,7 +40,6 @@ export function Header({ title, subtitle }: HeaderProps) {
       title: 'Nova matrícula pendente',
       message: 'João Silva aguarda aprovação',
       type: 'enrollment',
-      read: false,
       actionPath: '/alunos'
     },
     {
@@ -49,7 +47,6 @@ export function Header({ title, subtitle }: HeaderProps) {
       title: 'Notas lançadas',
       message: 'Prof. Maria lançou notas de Matemática',
       type: 'grade',
-      read: false,
       actionPath: '/notas'
     },
     {
@@ -57,7 +54,6 @@ export function Header({ title, subtitle }: HeaderProps) {
       title: 'Reunião agendada',
       message: 'Conselho de classe - 15/01',
       type: 'calendar',
-      read: false,
       actionPath: '/calendario'
     }
   ]);
@@ -81,12 +77,12 @@ export function Header({ title, subtitle }: HeaderProps) {
     return 'Usuário';
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const notificationCount = notifications.length;
 
   const handleNotificationClick = (notification: Notification) => {
-    // Marcar como lida
+    // Remover a notificação da lista
     setNotifications(prev => 
-      prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+      prev.filter(n => n.id !== notification.id)
     );
 
     // Navegar para a página relacionada
@@ -120,9 +116,9 @@ export function Header({ title, subtitle }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="w-5 h-5 text-muted-foreground" />
-              {unreadCount > 0 && (
+              {notificationCount > 0 && (
                 <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-primary">
-                  {unreadCount}
+                  {notificationCount}
                 </Badge>
               )}
             </Button>
@@ -138,12 +134,10 @@ export function Header({ title, subtitle }: HeaderProps) {
               notifications.map((notification) => (
                 <DropdownMenuItem
                   key={notification.id}
-                  className={`flex flex-col items-start gap-1 py-3 cursor-pointer ${
-                    !notification.read ? 'bg-accent' : ''
-                  }`}
+                  className="flex flex-col items-start gap-1 py-3 cursor-pointer bg-accent"
                   onClick={() => handleNotificationClick(notification)}
                 >
-                  <span className={`font-medium ${!notification.read ? 'font-semibold' : ''}`}>
+                  <span className="font-semibold">
                     {notification.title}
                   </span>
                   <span className="text-xs text-muted-foreground">{notification.message}</span>
