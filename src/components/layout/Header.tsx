@@ -14,15 +14,53 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useState } from "react";
 
 interface HeaderProps {
   title: string;
   subtitle?: string;
 }
 
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'enrollment' | 'grade' | 'calendar';
+  read: boolean;
+  actionPath?: string;
+}
+
 export function Header({ title, subtitle }: HeaderProps) {
   const { user, signOut, roles } = useAuth();
   const navigate = useNavigate();
+
+  // Estado para notificações
+  const [notifications, setNotifications] = useState<Notification[]>([
+    {
+      id: '1',
+      title: 'Nova matrícula pendente',
+      message: 'João Silva aguarda aprovação',
+      type: 'enrollment',
+      read: false,
+      actionPath: '/alunos'
+    },
+    {
+      id: '2',
+      title: 'Notas lançadas',
+      message: 'Prof. Maria lançou notas de Matemática',
+      type: 'grade',
+      read: false,
+      actionPath: '/notas'
+    },
+    {
+      id: '3',
+      title: 'Reunião agendada',
+      message: 'Conselho de classe - 15/01',
+      type: 'calendar',
+      read: false,
+      actionPath: '/calendario'
+    }
+  ]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -41,6 +79,20 @@ export function Header({ title, subtitle }: HeaderProps) {
     if (roles.includes('student')) return 'Aluno';
     if (roles.includes('parent')) return 'Responsável';
     return 'Usuário';
+  };
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleNotificationClick = (notification: Notification) => {
+    // Marcar como lida
+    setNotifications(prev => 
+      prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+    );
+
+    // Navegar para a página relacionada
+    if (notification.actionPath) {
+      navigate(notification.actionPath);
+    }
   };
 
   return (
@@ -68,26 +120,36 @@ export function Header({ title, subtitle }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="w-5 h-5 text-muted-foreground" />
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                3
-              </Badge>
+              {unreadCount > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-primary">
+                  {unreadCount}
+                </Badge>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
             <DropdownMenuLabel>Notificações</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <span className="font-medium">Nova matrícula pendente</span>
-              <span className="text-xs text-muted-foreground">João Silva aguarda aprovação</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <span className="font-medium">Notas lançadas</span>
-              <span className="text-xs text-muted-foreground">Prof. Maria lançou notas de Matemática</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 py-3">
-              <span className="font-medium">Reunião agendada</span>
-              <span className="text-xs text-muted-foreground">Conselho de classe - 15/01</span>
-            </DropdownMenuItem>
+            {notifications.length === 0 ? (
+              <DropdownMenuItem disabled className="text-center py-6 text-muted-foreground">
+                Nenhuma notificação
+              </DropdownMenuItem>
+            ) : (
+              notifications.map((notification) => (
+                <DropdownMenuItem
+                  key={notification.id}
+                  className={`flex flex-col items-start gap-1 py-3 cursor-pointer ${
+                    !notification.read ? 'bg-accent' : ''
+                  }`}
+                  onClick={() => handleNotificationClick(notification)}
+                >
+                  <span className={`font-medium ${!notification.read ? 'font-semibold' : ''}`}>
+                    {notification.title}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{notification.message}</span>
+                </DropdownMenuItem>
+              ))
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
