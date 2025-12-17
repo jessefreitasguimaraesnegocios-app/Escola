@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { GraduationCap, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,6 +20,7 @@ export default function Auth() {
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   
   // Signup form state
   const [signupEmail, setSignupEmail] = useState('');
@@ -213,6 +215,20 @@ export default function Auth() {
                       onChange={(e) => setLoginPassword(e.target.value)}
                       disabled={loading}
                     />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="remember-me"
+                      checked={rememberMe}
+                      onCheckedChange={(checked) => setRememberMe(checked === true)}
+                      disabled={loading}
+                    />
+                    <Label
+                      htmlFor="remember-me"
+                      className="text-sm font-normal cursor-pointer"
+                    >
+                      Permanecer logado
+                    </Label>
                   </div>
                 </CardContent>
                 <CardFooter>
